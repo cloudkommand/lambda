@@ -6,7 +6,7 @@ import json
 import traceback
 
 from extutil import remove_none_attributes, gen_log, creturn, handle_common_errors, \
-    account_context, component_safe_name, ExtensionHandler, ext
+    account_context, component_safe_name, ExtensionHandler, ext, lambda_env
 
 eh = ExtensionHandler()
 ALLOWED_RUNTIMES = ["python3.9", "python3.8", "python3.6", "python3.7", "nodejs14.x", "nodejs12.x", "nodejs10.x", "ruby2.7", "ruby2.5"]
@@ -43,8 +43,16 @@ def lambda_handler(event, context):
         #     return creturn(200, 0, error=f"The referenced role must have lambda in its list of trusted services")
 
         role_arn = cdef.get("role_arn") or role.get("arn")
-        if not role_arn:
-            return creturn(200, 0, error=f"Must provide a role_arn. Please use either the role or role_arn keywords")
+        if role_arn:
+            eh.add_state({"role_arn": role_arn})
+        # elif prev_state.get("props", {}).get("Role", {}).get("arn"):
+        #     eh.add_state({"role_arn": prev_state.get("props", {}).get("Role", {}).get("arn")})
+        # if not role_arn:
+        #     return creturn(200, 0, error=f"Must provide a role_arn. Please use either the role or role_arn keywords")
+
+        policies = cdef.get("policies")
+        policy_arns = cdef.get("policy_arns")
+        role_description = cdef.get("role_description")
 
         layer_arns = cdef.get("layer_arns") or []
         layers = cdef.get("layers") or []
@@ -58,11 +66,23 @@ def lambda_handler(event, context):
         function_name = cdef.get("name") or component_safe_name(project_code, repo_id, cname)
         pass_back_data = event.get("pass_back_data", {})
 
+        if pass_back_data:
+            pass
+        elif op == "upsert":
+            eh.add_op('upsert_role')
+            eh.add_op("get_lambda")
+            eh.add_op("gen_props")
+        elif op == "delete":
+            eh.add_op('delete_role')
+            eh.add_op("remove_old", function_name)
+
+        upsert_role(prev_state, policies, policy_arns, role_description)
+
         desired_config = remove_none_attributes({
             "FunctionName": function_name,
             "Description": description,
             "Handler": handler,
-            "Role": role_arn,
+            "Role": eh.state['role_arn'],
             "Timeout": timeout,
             "MemorySize": memory_size,
             "Environment": environment,
@@ -70,19 +90,12 @@ def lambda_handler(event, context):
             "Layers": layer_arns or None
         })
 
-        if pass_back_data:
-            pass
-        elif op == "upsert":
-            eh.add_op("get_lambda")
-            eh.add_op("gen_props")
-        elif op == "delete":
-            eh.add_op("remove_old", function_name)
-
         get_function(prev_state, function_name, desired_config)
         create_function(function_name, desired_config, bucket, object_name)
         update_function_configuration(function_name, desired_config)
         update_function_code(function_name, bucket, object_name)
         remove_function()
+        remove_role(policies, policy_arns, role_description)
         gen_props(function_name, region)
         return eh.finish()
 
@@ -98,6 +111,35 @@ def get_default_handler(runtime):
         return "lambda_function.lambda_handler"
     elif runtime.startswith("node"):
         return "index.handler"
+
+def manage_role(op, policies, policy_arns, role_description):
+    function_arn = lambda_env('role_lambda_name')
+    component_def = remove_none_attributes({
+        "policies": policies,
+        "policy_arns": policy_arns,
+        "description": role_description
+    })
+
+    proceed = eh.invoke_extension(
+        arn=function_arn, component_def=component_def, 
+        child_key="Role", progress_start=0, progress_end=20,
+        op=op, merge_props=False)
+
+    return proceed
+
+@ext(handler=eh, op="upsert_role")
+def upsert_role(prev_state, policies, policy_arns, role_description):
+    if eh.state.get("role_arn") and prev_state.get("props", {}).get("Role", {}).get("arn"):
+        manage_role("delete", policies, policy_arns, role_description)
+    elif not eh.state.get("role_arn"):
+        proceed = manage_role("upsert", policies, policy_arns, role_description)
+        if proceed:
+            eh.add_state({"role_arn": eh.props.get("Role").get("arn")})
+
+@ext(handler=eh, op="remove_role")
+def remove_role(policies, policy_arns, role_description):
+    manage_role("delete", policies, policy_arns, role_description)
+    
 
 @ext(handler=eh, op="get_lambda")
 def get_function(prev_state, function_name, desired_config):
@@ -144,7 +186,7 @@ def get_function(prev_state, function_name, desired_config):
             eh.add_op("create_function")
             eh.add_log("Function Does Not Exist", {"name": function_name})
         else:
-            handle_common_errors(e, eh, "Get Function Failed", 0)
+            handle_common_errors(e, eh, "Get Function Failed", 20)
     
 
 @ext(handler=eh, op="create_function")
@@ -180,7 +222,7 @@ def create_function(function_name, desired_config, bucket, object_name):
             #Need to check whether this is actually a race condition or whether it is a role_policy issue
             retry_create(str(e))
         else:
-            handle_common_errors(e, eh, "Create Function Failed:", 20, [
+            handle_common_errors(e, eh, "Create Function Failed:", 40, [
                 'InvalidParameterValue', 'CodeStorageExceeded', 'CodeVerificationFailed', 
                 'InvalidCodeSignature', 'CodeSigningConfigNotFound'
             ])
