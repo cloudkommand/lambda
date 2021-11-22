@@ -74,7 +74,7 @@ def lambda_handler(event, context):
             eh.add_op("gen_props")
         elif op == "delete":
             eh.add_op('delete_role')
-            eh.add_op("remove_old", function_name)
+            eh.add_op("remove_old", {"name": function_name})
 
         upsert_role(prev_state, policies, policy_arns, role_description)
 

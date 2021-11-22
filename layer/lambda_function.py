@@ -52,7 +52,7 @@ def lambda_handler(event, context):
                 eh.add_op("publish_layer_version")
 
         elif event.get("op") == "delete":
-            eh.add_op("remove_layer_versions", layer_name)
+            eh.add_op("remove_layer_versions", {"name": layer_name})
 
         check_if_update_required(prev_state, bucket, object_name)
         publish_layer_version(layer_name, cdef, bucket, object_name, region)
