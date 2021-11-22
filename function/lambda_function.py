@@ -53,6 +53,7 @@ def lambda_handler(event, context):
         policies = cdef.get("policies")
         policy_arns = cdef.get("policy_arns")
         role_description = cdef.get("role_description")
+        role_tags = cdef.get("role_tags")
 
         layer_arns = cdef.get("layer_arns") or []
         layers = cdef.get("layers") or []
@@ -76,7 +77,7 @@ def lambda_handler(event, context):
             eh.add_op('delete_role')
             eh.add_op("remove_old", {"name": function_name})
 
-        upsert_role(prev_state, policies, policy_arns, role_description)
+        upsert_role(prev_state, policies, policy_arns, role_description, role_tags)
 
         desired_config = remove_none_attributes({
             "FunctionName": function_name,
@@ -95,7 +96,7 @@ def lambda_handler(event, context):
         update_function_configuration(function_name, desired_config)
         update_function_code(function_name, bucket, object_name)
         remove_function()
-        remove_role(policies, policy_arns, role_description)
+        remove_role(policies, policy_arns, role_description, role_tags)
         gen_props(function_name, region)
         return eh.finish()
 
@@ -112,12 +113,13 @@ def get_default_handler(runtime):
     elif runtime.startswith("node"):
         return "index.handler"
 
-def manage_role(op, policies, policy_arns, role_description):
+def manage_role(op, policies, policy_arns, role_description, role_tags):
     function_arn = lambda_env('role_lambda_name')
     component_def = remove_none_attributes({
         "policies": policies,
         "policy_arns": policy_arns,
-        "description": role_description
+        "description": role_description,
+        "tags": role_tags
     })
 
     proceed = eh.invoke_extension(
@@ -128,7 +130,7 @@ def manage_role(op, policies, policy_arns, role_description):
     return proceed
 
 @ext(handler=eh, op="upsert_role")
-def upsert_role(prev_state, policies, policy_arns, role_description):
+def upsert_role(prev_state, policies, policy_arns, role_description, role_tags):
     if eh.state.get("role_arn") and prev_state.get("props", {}).get("Role", {}).get("arn"):
         manage_role("delete", policies, policy_arns, role_description)
     elif not eh.state.get("role_arn"):
@@ -137,8 +139,8 @@ def upsert_role(prev_state, policies, policy_arns, role_description):
             eh.add_state({"role_arn": eh.props.get("Role").get("arn")})
 
 @ext(handler=eh, op="remove_role")
-def remove_role(policies, policy_arns, role_description):
-    manage_role("delete", policies, policy_arns, role_description)
+def remove_role(policies, policy_arns, role_description, role_tags):
+    manage_role("delete", policies, policy_arns, role_description, role_tags)
     
 
 @ext(handler=eh, op="get_lambda")
