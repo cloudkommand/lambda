@@ -17,7 +17,7 @@ def lambda_handler(event, context):
         eh.capture_event(event)
 
         region = account_context(context)['region']
-        prev_state = event.get("prev_state")
+        prev_state = event.get("prev_state") or {}
         op = event.get("op")
 
         cdef = event.get("component_def")
@@ -132,9 +132,9 @@ def manage_role(op, policies, policy_arns, role_description, role_tags):
 @ext(handler=eh, op="upsert_role")
 def upsert_role(prev_state, policies, policy_arns, role_description, role_tags):
     if eh.state.get("role_arn") and prev_state.get("props", {}).get("Role", {}).get("arn"):
-        manage_role("delete", policies, policy_arns, role_description)
+        manage_role("delete", policies, policy_arns, role_description, role_tags)
     elif not eh.state.get("role_arn"):
-        proceed = manage_role("upsert", policies, policy_arns, role_description)
+        proceed = manage_role("upsert", policies, policy_arns, role_description, role_tags)
         if proceed:
             eh.add_state({"role_arn": eh.props.get("Role").get("arn")})
 
