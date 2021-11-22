@@ -1,13 +1,13 @@
 {
     "components": {
-        "lambda": {
+        "function": {
             "type": "ext",
             "displayname": "CK Lambda Function",
             "cloud": "AWS",
             "download_folder": true,
-            "resources": ["lambda::function"],
+            "resources": ["AWS::lambda::function"],
             "environment_variables": {
-                "role_lambda_name": "@role:props.function_name"
+                "role_lambda_name": "@iam.role:props.function_name"
             },
             "policy": {
                 "Version": "2012-10-17",
@@ -130,7 +130,7 @@
             "displayname": "CK Lambda Layer",
             "cloud": "AWS",
             "download_folder": true,
-            "resources": ["AWS::lambda::function"],
+            "resources": ["AWS::lambda::layer"],
             "policy": {
                 "Version": "2012-10-17",
                 "Statement": [{
@@ -181,5 +181,8 @@
                 }
             }
         }
+    },
+    "repos": {
+        "iam": "https://github.com/cloudkommand/iam"
     }
 }
