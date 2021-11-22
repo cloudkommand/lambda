@@ -1,0 +1,185 @@
+{
+    "components": {
+        "lambda": {
+            "type": "ext",
+            "displayname": "CK Lambda Function",
+            "cloud": "AWS",
+            "download_folder": true,
+            "resources": ["lambda::function"],
+            "environment_variables": {
+                "role_lambda_name": "@role:props.function_name"
+            },
+            "policy": {
+                "Version": "2012-10-17",
+                "Statement": [{
+                    "Sid": "Vis",
+                    "Effect": "Allow",
+                    "Action": [
+                        "iam:PassRole",
+                        "lambda:CreateFunction",
+                        "lambda:DeleteFunction",
+                        "lambda:GetFunction",
+                        "lambda:InvokeFunction",
+                        "lambda:UpdateFunctionCode",
+                        "lambda:UpdateFunctionConfiguration",
+                        "lambda:TagResource",
+                        "lambda:UntagResource",
+                        "lambda:InvokeFunction",
+                        "lambda:GetLayerVersion",
+                        "s3:GetObject"
+                    ],
+                    "Resource": "*"
+                }]
+            },
+            "input": {
+                "type": "object",
+                "properties": {
+                    "runtime": {
+                        "type": "string",
+                        "enum": ["python3.9", "python3.8", "python3.6", "python3.7", "nodejs14.x", "nodejs12.x", "nodejs10.x", "ruby2.7", "ruby2.5"],
+                        "description": "The runtime for the Lambda (language identifier)"
+                    },
+                    "handler": {
+                        "type": "string",
+                        "description": "{name_of_file_with_handler_in_it}.{name_of_handler_function_in_file}. Defaults to index.handler for Node Lambdas and lambda_function.lambda_handler for all others"
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": "A description for this function. Will be auto-generated if not specified"
+                    },
+                    "timeout": {
+                        "type": "integer",
+                        "description": "The number of seconds before this Lambda times out automatically",
+                        "default": 5,
+                        "minimum": 1,
+                        "maximum": 900
+                    },
+                    "memory_size": {
+                        "type": "integer",
+                        "description": "The amount of memory to assign to this Lambda. Also affects compute and I/O",
+                        "default": 256,
+                        "minimum": 128,
+                        "maximum": 10240
+                    },
+                    "environment_variables": {
+                        "type": "object",
+                        "description": "Key-value pairs of environment variables to be set for the Lambda. Values must be strings"
+                    },
+                    "role": {
+                        "type": "string",
+                        "description": "A component reference to a component that exposes a role_arn prop. The role associated with that ARN will be attached to the Lambda"
+                    },
+                    "role_arn": {
+                        "type": "string",
+                        "description": "An ARN of the role to attach to the Lambda"
+                    },
+                    "name": {
+                        "type": "string",
+                        "description": "The name of the Lambda. Will be auto-generated if not specified"
+                    }
+                },
+                "oneOf": [
+                    {
+                        "required": [
+                            "role"
+                        ]
+                    },
+                    {
+                        "required": [
+                            "role_arn"
+                        ]
+                    }
+                ]
+            },
+            "props": {
+                "arn": {
+                    "type": "string",
+                    "description": "The ARN of the Lambda"
+                },
+                "name": {
+                    "type": "string",
+                    "description": "The name of the Lambda"
+                },
+                "code_size": {
+                    "type": "integer",
+                    "description": "The amount of bytes of code present"
+                },
+                "code_sha": {
+                    "type": "string",
+                    "description": "A SHA of the deployed code"
+                },
+                "last_modified": {
+                    "type": "string",
+                    "description": "The last datetime when the Lambda was modified"
+                },
+                "master_arn": {
+                    "type": "integer",
+                    "description": "Unknown"
+                },
+                "layers": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "A list of layer version ARNs that are attached to this lambda"
+                }
+            }
+        },
+        "layer": {
+            "type": "ext",
+            "displayname": "CK Lambda Layer",
+            "cloud": "AWS",
+            "download_folder": true,
+            "resources": ["AWS::lambda::function"],
+            "policy": {
+                "Version": "2012-10-17",
+                "Statement": [{
+                    "Sid": "Vis",
+                    "Effect": "Allow",
+                    "Action": [
+                        "iam:PassRole",
+                        "lambda:AddLayerVersionPermission",
+                        "lambda:DeleteLayerVersion",
+                        "lambda:GetLayerVersion",
+                        "lambda:ListLayerVersions",
+                        "lambda:ListLayers",
+                        "lambda:PublishLayerVersion",
+                        "lambda:RemoveLayerVersionPermission",
+                        "lambda:TagResource",
+                        "lambda:UntagResource",
+                        "s3:GetObject"
+                    ],
+                    "Resource": "*"
+                }]
+            },
+            "input": {
+                "type": "object",
+                "properties": {
+                    "compatible_runtimes": {
+                        "type": "array",
+                        "description": "A list of the compatible runtimes of the layer",
+                        "default": ["python3.9", "python3.8", "python3.7", "python3.6"]
+                    },
+                    "name": {
+                        "type": "string",
+                        "description": "The name of the Lambda Layer. Will be auto-generated if not specified"
+                    }
+                }
+            },
+            "props": {
+                "arn": {
+                    "type": "string",
+                    "description": "The ARN of the Layer"
+                },
+                "version_arn": {
+                    "type": "string",
+                    "description": "The ARN of the current layer version"
+                },
+                "version": {
+                    "type": "integer",
+                    "description": "The version number of the current layer version"
+                }
+            }
+        }
+    }
+}
