@@ -28,7 +28,7 @@ def lambda_handler(event, context):
         project_code = event.get("project_code")
         repo_id = event.get("repo_id")
         object_name = event.get("s3_object_name")
-        runtime = cdef.get("runtime") or "python3.8"
+        runtime = cdef.get("runtime") or "python3.9"
         if runtime not in ALLOWED_RUNTIMES:
             return creturn(200, 0, error=f"runtime {runtime} not allowed, please choose one of {ALLOWED_RUNTIMES}")
 
@@ -94,7 +94,7 @@ def lambda_handler(event, context):
 
         function_arn = gen_lambda_arn(function_name, region, account_number)
 
-        get_function(prev_state, function_name, desired_config)
+        get_function(prev_state, function_name, desired_config, tags)
         create_function(function_name, desired_config, bucket, object_name, tags)
         update_function_configuration(function_name, desired_config)
         update_function_code(function_name, bucket, object_name)
