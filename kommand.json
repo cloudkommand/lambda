@@ -36,8 +36,9 @@
                 "properties": {
                     "runtime": {
                         "type": "string",
+                        "default": "python3.9",
                         "enum": ["python3.9", "python3.8", "python3.6", "python3.7", "nodejs14.x", "nodejs12.x", "nodejs10.x", "ruby2.7", "ruby2.5"],
-                        "description": "The runtime for the Lambda (language identifier)"
+                        "description": "The runtime for the Lambda function (language identifier)"
                     },
                     "handler": {
                         "type": "string",
@@ -49,34 +50,55 @@
                     },
                     "timeout": {
                         "type": "integer",
-                        "description": "The number of seconds before this Lambda times out automatically",
+                        "description": "The number of seconds before this Lambda function times out automatically",
                         "default": 5,
                         "minimum": 1,
                         "maximum": 900
                     },
                     "memory_size": {
                         "type": "integer",
-                        "description": "The amount of memory to assign to this Lambda. Also affects compute and I/O",
+                        "description": "The amount of memory to assign to this Lambda function. Also affects compute and I/O",
                         "default": 256,
                         "minimum": 128,
                         "maximum": 10240
                     },
                     "environment_variables": {
                         "type": "object",
-                        "description": "Key-value pairs of environment variables to be set for the Lambda. Values must be strings"
+                        "description": "Key-value pairs of environment variables to be set for the Lambda function. Values must be strings"
                     },
                     "role": {
                         "type": "string",
-                        "description": "A component reference to a component that exposes a role_arn prop. The role associated with that ARN will be attached to the Lambda"
+                        "description": "A component reference to a component that exposes an arn prop. The role associated with that ARN will be attached to the function"
                     },
                     "role_arn": {
                         "type": "string",
-                        "description": "An ARN of the role to attach to the Lambda"
+                        "description": "An ARN of the role to attach to the Lambda function"
                     },
                     "name": {
                         "type": "string",
-                        "description": "The name of the Lambda. Will be auto-generated if not specified"
+                        "description": "The name of the Lambda function. Will be auto-generated if not specified"
+                    },
+                    "tags": {
+                        "type": "object",
+                        "description": "The tags to attach to this function"
+                    },
+                    "policies": {
+                        "type": "array",
+                        "description": "A list of component references to policy components that expose an arn prop. The policies associated with such ARNs will be attached to a role created for the function"
+                    },
+                    "policy_arns": {
+                        "type": "array",
+                        "description": "A list of IAM policy ARNs to attach to a custom-created IAM role for this Lambda function"
+                    },
+                    "role_description": {
+                        "type": "string",
+                        "description": "If auto-generating a role, this sets the role's description"
+                    },
+                    "role_tags": {
+                        "type": "object",
+                        "description": "If auto-generating a role, this sets the role's tags"
                     }
+                    
                 },
                 "oneOf": [
                     {
@@ -87,6 +109,16 @@
                     {
                         "required": [
                             "role_arn"
+                        ]
+                    },
+                    {
+                        "required": [
+                            "policies"
+                        ]
+                    },
+                    {
+                        "required": [
+                            "policy_arns"
                         ]
                     }
                 ]

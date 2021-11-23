@@ -153,6 +153,7 @@ class ExtensionHandler:
         self.retries = pbd.pop('retries', {}) or {}
         self.props = pbd.pop("props", {}) or {}
         self.links = pbd.pop("links", {}) or {}
+        self.state = pbd.pop("state", {}) or {}
         print(f"Ops = {self.ops}, Retries = {self.retries}, Links = {self.links}, Props = {self.props}")
         self.children = pbd
         if pbd:
@@ -299,6 +300,7 @@ class ExtensionHandler:
             pass_back_data['retries'][self.error] = this_retries
             pass_back_data['props'] = self.props
             pass_back_data['links'] = self.links
+            pass_back_data['state'] = self.state
             if self.children:
                 pass_back_data.update(self.children)
             if this_retries < self.max_retries_per_error_code and self.callback:
