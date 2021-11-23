@@ -78,6 +78,10 @@
                         "type": "string",
                         "description": "The name of the Lambda function. Will be auto-generated if not specified"
                     },
+                    "tags": {
+                        "type": "object",
+                        "description": "The tags to attach to this function"
+                    },
                     "policies": {
                         "type": "array",
                         "description": "A list of component references to policy components that expose an arn prop. The policies associated with such ARNs will be attached to a role created for the function"
@@ -86,10 +90,15 @@
                         "type": "array",
                         "description": "A list of IAM policy ARNs to attach to a custom-created IAM role for this Lambda function"
                     },
-                    "tags": {
+                    "role_description": {
+                        "type": "string",
+                        "description": "If auto-generating a role, this sets the role's description"
+                    },
+                    "role_tags": {
                         "type": "object",
-                        "description": "The tags to attach to this function"
+                        "description": "If auto-generating a role, this sets the role's tags"
                     }
+                    
                 },
                 "oneOf": [
                     {
