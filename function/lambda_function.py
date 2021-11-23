@@ -17,6 +17,7 @@ def lambda_handler(event, context):
         eh.capture_event(event)
 
         region = account_context(context)['region']
+        account_number = account_context(context)['number']
         prev_state = event.get("prev_state") or {}
         op = event.get("op")
 
@@ -37,7 +38,7 @@ def lambda_handler(event, context):
         memory_size = cdef.get("memory_size") or 256
         environment = {"Variables": {k: str(v) for k,v in cdef.get("environment_variables").items()}} if cdef.get("environment_variables") else None
 
-        tags = cdef.get("tags")
+        tags = cdef.get("tags") or {}
         role = cdef.get("role", {})
         # if role and (not "lambda" in role.get("role_services", [])) and (not "lambda.amazonaws.com" in role.get("role_services", [])):
         #     return creturn(200, 0, error=f"The referenced role must have lambda in its list of trusted services")
@@ -91,10 +92,14 @@ def lambda_handler(event, context):
             "Layers": layer_arns or None
         })
 
+        function_arn = gen_lambda_arn(function_name, region, account_number)
+
         get_function(prev_state, function_name, desired_config)
-        create_function(function_name, desired_config, bucket, object_name)
+        create_function(function_name, desired_config, bucket, object_name, tags)
         update_function_configuration(function_name, desired_config)
         update_function_code(function_name, bucket, object_name)
+        remove_tags(function_arn)
+        add_tags(function_arn)
         remove_function()
         remove_role(policies, policy_arns, role_description, role_tags)
         gen_props(function_name, region)
@@ -146,14 +151,14 @@ def remove_role(policies, policy_arns, role_description, role_tags):
     
 
 @ext(handler=eh, op="get_lambda")
-def get_function(prev_state, function_name, desired_config):
+def get_function(prev_state, function_name, desired_config, tags):
     lambda_client = boto3.client("lambda")
 
     if prev_state and prev_state.get("props", {}).get("name"):
         old_function_name = prev_state["props"]["name"]
         if old_function_name and (old_function_name != function_name):
             eh.add_op("remove_old", {"name": old_function_name, "create_and_remove": True})
-            eh.add_op("create_function", function_name)
+            eh.add_op("create_function")
             return 0
 
     try:
@@ -181,6 +186,15 @@ def get_function(prev_state, function_name, desired_config):
             if current_layer_arns != desired_layer_arns:
                 eh.add_log("Desired Layers Don't Match", {"current": current_layer_arns, "desired": desired_layer_arns})
                 eh.add_op("update_function_configuration")
+
+        current_tags = function.get("Tags") or {}
+        if tags != current_tags:
+            remove_tags = [k for k in current_tags.keys() if k not in tags]
+            add_tags = {k:v for k,v in tags.items() if k not in current_tags.keys()}
+            if remove_tags:
+                eh.add_op("remove_tags", remove_tags)
+            if add_tags:
+                eh.add_op("add_tags", add_tags)
                     
         #Store hash?
         # update_function_code = True
@@ -194,7 +208,7 @@ def get_function(prev_state, function_name, desired_config):
     
 
 @ext(handler=eh, op="create_function")
-def create_function(function_name, desired_config, bucket, object_name):
+def create_function(function_name, desired_config, bucket, object_name, tags):
     lambda_client = boto3.client("lambda")
 
     def retry_create(message):
@@ -207,6 +221,7 @@ def create_function(function_name, desired_config, bucket, object_name):
                 "S3Bucket": bucket,
                 "S3Key": object_name
             }
+        create_params['Tags'] = tags
 
         lambda_response = lambda_client.create_function(**remove_none_attributes(create_params))
 
@@ -219,6 +234,8 @@ def create_function(function_name, desired_config, bucket, object_name):
             eh.add_log("Lambda Already Exists", {"function_name": function_name})
             eh.add_op("update_function_code")
             eh.add_op("update_function_configuration")
+            if tags:
+                eh.add_op("add_tags", tags)
         elif str(e) == "An error occurred (InvalidParameterValueException) when calling the CreateFunction operation: The role defined for the function cannot be assumed by Lambda.":
             #Need to check whether this is actually a race condition or whether it is a role_policy issue
             retry_create(str(e))
@@ -226,7 +243,7 @@ def create_function(function_name, desired_config, bucket, object_name):
             #Need to check whether this is actually a race condition or whether it is a role_policy issue
             retry_create(str(e))
         else:
-            handle_common_errors(e, eh, "Create Function Failed:", 40, [
+            handle_common_errors(e, eh, "Create Function Failed", 40, [
                 'InvalidParameterValue', 'CodeStorageExceeded', 'CodeVerificationFailed', 
                 'InvalidCodeSignature', 'CodeSigningConfigNotFound'
             ])
@@ -247,7 +264,7 @@ def update_function_configuration(function_name, desired_config):
         eh.add_log("Updated Function Config", lambda_response)
 
     except ClientError as e:
-        handle_common_errors(e, eh, "Config Update Failed:", 60, [
+        handle_common_errors(e, eh, "Config Update Failed", 60, [
             'PreconditionFailed', 'CodeVerificationFailed', 
             'InvalidCodeSignature', 'CodeSigningConfigNotFound'
             ])
@@ -267,7 +284,7 @@ def update_function_code(function_name, bucket, object_name):
         eh.add_log("Updated Function Code", lambda_response)
 
     except ClientError as e:
-        handle_common_errors(e, eh, "Code Update Failed:", 75, [
+        handle_common_errors(e, eh, "Code Update Failed", 75, [
             'InvalidParameterValue', 'CodeStorageExceeded', 
             'PreconditionFailed', 'CodeVerificationFailed', 
             'InvalidCodeSignature', 'CodeSigningConfigNotFound'
@@ -296,19 +313,43 @@ def gen_props(function_name, region):
             "Function": gen_lambda_link(function_name, region)
         })
     except ClientError as e:
-        handle_common_errors(e, eh, "Get Props Failed: ", 96)
+        handle_common_errors(e, eh, "Get Props Failed: ", 98)
+
+@ext(handler=eh, op="add_tags")
+def add_tags(function_arn):
+    lambda_client = boto3.client("lambda")
+    tags = eh.ops['add_tags']
+
+    try:
+        lambda_client.tag_resource(
+            Resource=function_arn,
+            Tags=tags
+        )
+        eh.add_log("Tags Added", {"tags": tags})
+
+    except ClientError as e:
+        handle_common_errors(e, eh, "Add Tags Failed", 85, ['InvalidParameterValueException'])
+        
+
+@ext(handler=eh, op="remove_tags")
+def remove_tags(function_arn):
+    lambda_client = boto3.client("lambda")
+
+    try:
+        lambda_client.untag_resource(
+            Resource=function_arn,
+            TagKeys=eh.ops['remove_tags']
+        )
+        eh.add_log("Tags Removed", {"tags": eh.ops['remove_tags']})
+
+    except botocore.exceptions.ClientError as e:
+        handle_common_errors(e, eh, "Remove Tags Failed", 92, ['InvalidParameterValueException'])
 
 
-def gen_iam_policy_arn(policy_name, account_number, path="/"):
-    #arn:aws:iam::227993477930:policy/3aba481ac88bcbc5d94567e9f93339a7-iam
-    return f"arn:aws:iam::{account_number}:policy{path}{policy_name}"
-
-#This may be different with "paths"
 def gen_lambda_arn(function_name, region, account_number):
     #arn:aws:iam::227993477930:policy/3aba481ac88bcbc5d94567e9f93339a7-iam
-    return f"arn:aws:iam:{region}:{account_number}:function:{function_name}"
+    return f"arn:aws:lambda:{region}:{account_number}:function:{function_name}"
 
-#I bet this is different with "paths"
 def gen_lambda_link(function_name, region):
     return f"https://console.aws.amazon.com/lambda/home?region={region}#/functions/{function_name}"
 
