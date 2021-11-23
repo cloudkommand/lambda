@@ -137,6 +137,8 @@ def upsert_role(prev_state, policies, policy_arns, role_description, role_tags):
         proceed = manage_role("upsert", policies, policy_arns, role_description, role_tags)
         if proceed:
             eh.add_state({"role_arn": eh.props.get("Role").get("arn")})
+    else:
+        return 0
 
 @ext(handler=eh, op="remove_role")
 def remove_role(policies, policy_arns, role_description, role_tags):

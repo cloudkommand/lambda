@@ -182,7 +182,7 @@ def remove_layer_versions(op):
                     "Marker": marker
                 })
             )            
-            eh.add_log("Listed Layer Versions", layer_versions_retval)
+            # eh.add_log("Listed Layer Versions", layer_versions_retval)
 
             marker = layer_versions_retval.get("NextMarker")
             layer_versions = layer_versions_retval.get("LayerVersions")
