@@ -81,6 +81,14 @@
                     "policies": {
                         "type": "array",
                         "description": "A list of component references to policy components that expose an arn prop. The policies associated with such ARNs will be attached to a role created for the function"
+                    },
+                    "policy_arns": {
+                        "type": "array",
+                        "description": "A list of IAM policy ARNs to attach to a custom-created IAM role for this Lambda function"
+                    },
+                    "tags": {
+                        "type": "object",
+                        "description": "The tags to attach to this function"
                     }
                 },
                 "oneOf": [
@@ -92,6 +100,16 @@
                     {
                         "required": [
                             "role_arn"
+                        ]
+                    },
+                    {
+                        "required": [
+                            "policies"
+                        ]
+                    },
+                    {
+                        "required": [
+                            "policy_arns"
                         ]
                     }
                 ]

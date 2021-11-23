@@ -75,7 +75,7 @@ def lambda_handler(event, context):
             eh.add_op("get_lambda")
             eh.add_op("gen_props")
         elif op == "delete":
-            eh.add_op('delete_role')
+            eh.add_op('remove_role')
             eh.add_op("remove_old", {"name": function_name})
 
         upsert_role(prev_state, policies, policy_arns, role_description, role_tags)
@@ -137,7 +137,8 @@ def manage_role(op, policies, policy_arns, role_description, role_tags):
 @ext(handler=eh, op="upsert_role")
 def upsert_role(prev_state, policies, policy_arns, role_description, role_tags):
     if eh.state.get("role_arn") and prev_state.get("props", {}).get("Role", {}).get("arn"):
-        manage_role("delete", policies, policy_arns, role_description, role_tags)
+        eh.add_op("remove_role")
+        # manage_role("delete", policies, policy_arns, role_description, role_tags)
     elif not eh.state.get("role_arn"):
         proceed = manage_role("upsert", policies, policy_arns, role_description, role_tags)
         if proceed:
