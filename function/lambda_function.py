@@ -83,7 +83,7 @@ def lambda_handler(event, context):
             "FunctionName": function_name,
             "Description": description,
             "Handler": handler,
-            "Role": eh.state['role_arn'],
+            "Role": eh.state['role_arn'] if op == "upsert" else None,
             "Timeout": timeout,
             "MemorySize": memory_size,
             "Environment": environment,
@@ -317,7 +317,7 @@ def remove_function():
     lambda_client = boto3.client("lambda")
 
     op_def = eh.ops['remove_old']
-    function_to_delete = op_def['function_name']
+    function_to_delete = op_def['name']
     create_and_delete = op_def.get("create_and_delete") or False
 
     try:
