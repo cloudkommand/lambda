@@ -53,8 +53,8 @@ def lambda_handler(event, context):
 
         policies = cdef.get("policies")
         policy_arns = cdef.get("policy_arns")
-        role_description = cdef.get("role_description")
-        role_tags = cdef.get("role_tags")
+        role_description = "Created by CK for the Lambda function of the same name"
+        role_tags = tags if cdef.get("also_tag_role") else cdef.get("role_tags")
 
         layer_arns = cdef.get("layer_arns") or []
         layers = cdef.get("layers") or []

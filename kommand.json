@@ -3,6 +3,7 @@
         "function": {
             "type": "ext",
             "displayname": "CK Lambda Function",
+            "description": "Deploys an AWS Lambda Function. Lambda functions are one of the foundational compute units AWS offers",
             "cloud": "AWS",
             "download_folder": true,
             "resources": ["AWS::lambda::function"],
@@ -90,13 +91,13 @@
                         "type": "array",
                         "description": "A list of IAM policy ARNs to attach to a custom-created IAM role for this Lambda function"
                     },
-                    "role_description": {
-                        "type": "string",
-                        "description": "If auto-generating a role, this sets the role's description"
-                    },
                     "role_tags": {
                         "type": "object",
                         "description": "If auto-generating a role, this sets the role's tags"
+                    },
+                    "also_tag_role": {
+                        "type": "boolean",
+                        "description": "If auto-generating a role, gives it the same tags as the function"
                     }
                     
                 },
@@ -160,6 +161,7 @@
         "layer": {
             "type": "ext",
             "displayname": "CK Lambda Layer",
+            "description": "Deploys an AWS Lambda Layer. Layers help you share code between Lambda functions efficiently",
             "cloud": "AWS",
             "download_folder": true,
             "resources": ["AWS::lambda::layer"],
