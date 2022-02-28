@@ -369,7 +369,7 @@ def remove_function():
         eh.add_log(f"Deleted Function", delete_response)
 
     except ClientError as e:
-        if e.response['Error']['Code'] == 'NoSuchEntityException':
+        if e.response['Error']['Code'] == 'ResourceNotFoundException':
             eh.add_log(f"Function Does Not Exist", {"function_name": function_to_delete})
         else:
             eh.retry_error(str(e), 90 if create_and_delete else 15)
