@@ -3,10 +3,14 @@ import botocore
 from botocore.exceptions import ClientError
 # import jsonschema
 import json
+import os
 import traceback
+import subprocess
+import zipfile
+import tempfile
 
 from extutil import remove_none_attributes, gen_log, creturn, handle_common_errors, \
-    account_context, component_safe_name, ExtensionHandler, ext, lambda_env
+    account_context, component_safe_name, ExtensionHandler, ext, lambda_env, random_id
 
 eh = ExtensionHandler()
 ALLOWED_RUNTIMES = ["python3.9", "python3.8", "python3.6", "python3.7", "nodejs14.x", "nodejs12.x", "nodejs10.x", "ruby2.7", "ruby2.5"]
@@ -74,6 +78,8 @@ def lambda_handler(event, context):
             eh.add_op('upsert_role')
             eh.add_op("get_lambda")
             eh.add_op("gen_props")
+            if cdef.get("requirements"):
+                eh.add_op("add_requirements", cdef.get("requirements"))
         elif op == "delete":
             eh.add_op('remove_role')
             eh.add_op("remove_old", {"name": function_name})
@@ -95,6 +101,7 @@ def lambda_handler(event, context):
         function_arn = gen_lambda_arn(function_name, region, account_number)
 
         get_function(prev_state, function_name, desired_config, tags)
+        add_requirements(bucket, object_name)
         create_function(function_name, desired_config, bucket, object_name, tags)
         update_function_configuration(function_name, desired_config)
         update_function_code(function_name, bucket, object_name)
@@ -207,6 +214,53 @@ def get_function(prev_state, function_name, desired_config, tags):
         else:
             handle_common_errors(e, eh, "Get Function Failed", 20)
     
+
+@ext(handler=eh, op="add_requirements")
+def add_requirements(bucket, object_name):
+    requirements = eh.ops["add_requirements"]
+
+    s3 = boto3.client("s3")
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+        try:
+            data = s3.get_object(Bucket=bucket, Key=object_name)["Body"]
+            filename = f"{tmpdir}/file.zip"
+            with open(filename, "wb") as f:
+                f.write(data)
+        except ClientError as e:
+            handle_common_errors(e, eh, "Download Zipfile Failed", 0)
+        except Exception as e:
+            print(str(e))
+            raise e
+
+        install_directory = f"{tmpdir}/install/"
+        os.mkdir(install_directory)
+        os.chdir(install_directory)
+        with zipfile.ZipFile(filename, 'r') as archive:
+            archive.extractall()
+
+        requirements_file = f"{install_directory}requirements.txt"
+        with open(requirements_file, "w") as f:
+            f.writelines("%s\n" % i for i in requirements)
+        
+        # if os.path.exists(requirements_file):
+        #     with open(requirements_file, "r") as f:
+        #         lines = list(f.readlines())
+        #         eh.add_log("Requirements Found", {"lines": lines})
+            
+        subprocess.call('pip install -r requirements.txt -t .'.split(), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        eh.add_log("Requirements installed", {"requirements": requirements})
+
+        print(os.listdir())
+
+        zipfile_name = f"{tmpdir}/file2.zip"
+        create_zip(zipfile_name, f"{tmpdir}/install")
+
+        try:
+            response = s3.upload_file(zipfile_name, bucket, object_name)
+            eh.add_log("Wrote Requirements to S3", response)
+        except ClientError as e:
+            handle_common_errors(e, eh, "Writing Requirements to S3 Failed", 25)
+
 
 @ext(handler=eh, op="create_function")
 def create_function(function_name, desired_config, bucket, object_name, tags):
@@ -375,3 +429,12 @@ def remove_function():
             eh.retry_error(str(e), 90 if create_and_delete else 15)
             eh.add_log(f"Error Deleting Function", {"name": function_to_delete}, True)
 
+def create_zip(file_name, path):
+    ziph=zipfile.ZipFile(file_name, 'w', zipfile.ZIP_DEFLATED)
+    # ziph is zipfile handle
+    for root, dirs, files in os.walk(path):
+        for file in files:
+            ziph.write(os.path.join(root, file), 
+                       os.path.relpath(os.path.join(root, file), 
+                                       os.path.join(path, '')))
+    ziph.close()
