@@ -253,11 +253,14 @@ def add_requirements(bucket, object_name):
         print(os.listdir())
 
         zipfile_name = f"{tmpdir}/file2.zip"
-        create_zip(zipfile_name, f"{tmpdir}/install")
+        create_zip(zipfile_name, install_directory[:-1])
 
         try:
             response = s3.upload_file(zipfile_name, bucket, object_name)
             eh.add_log("Wrote Requirements to S3", response)
+        except boto3.exceptions.S3UploadFailedError:
+            eh.add_log("Writing Requirements to S3 Failed", {"zipfile_name": zipfile_name, "requirements": requirements})
+            eh.retry_error("S3 Upload Error for Requirements", 25)
         except ClientError as e:
             handle_common_errors(e, eh, "Writing Requirements to S3 Failed", 25)
 
