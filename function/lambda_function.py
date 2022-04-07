@@ -227,7 +227,7 @@ def add_requirements(bucket, object_name):
             with open(filename, "wb") as f:
                 f.write(data)
         except ClientError as e:
-            handle_common_errors(e, eh, "Download Zipfile Failed", 0)
+            handle_common_errors(e, eh, "Download Zipfile Failed", 17)
         except Exception as e:
             print(str(e))
             raise e
