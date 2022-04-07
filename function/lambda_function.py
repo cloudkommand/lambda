@@ -220,7 +220,7 @@ def add_requirements(bucket, object_name):
     requirements = eh.ops["add_requirements"]
 
     s3 = boto3.client("s3")
-    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+    with tempfile.TemporaryDirectory() as tmpdir:
         try:
             data = s3.get_object(Bucket=bucket, Key=object_name)["Body"]
             filename = f"{tmpdir}/file.zip"
