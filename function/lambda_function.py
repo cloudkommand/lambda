@@ -225,7 +225,7 @@ def add_requirements(bucket, object_name):
             data = s3.get_object(Bucket=bucket, Key=object_name)["Body"]
             filename = f"{tmpdir}/file.zip"
             with open(filename, "wb") as f:
-                f.write(data)
+                f.write(data.read())
         except ClientError as e:
             handle_common_errors(e, eh, "Download Zipfile Failed", 17)
         except Exception as e:
