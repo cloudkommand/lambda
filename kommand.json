@@ -106,6 +106,10 @@
                             "type": "string",
                             "description": "A list of the modules/dependencies that should be added to this lambda"
                         }
+                    },
+                    "requirements.txt": {
+                        "type": "boolean",
+                        "description": "Set to true if a requirements.txt file should be extracted for installation. This should be placed directly underneath the top level folder"
                     }
                 },
                 "oneOf": [
@@ -212,6 +216,10 @@
                             "type": "string",
                             "description": "A list of the modules/dependencies that should be added to this layer"
                         }
+                    },
+                    "requirements.txt": {
+                        "type": "boolean",
+                        "description": "Set to true if a requirements.txt file should be extracted for installation. This should be placed directly underneath the top level folder"
                     }
                 }
             },
