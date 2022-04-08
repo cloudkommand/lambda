@@ -99,8 +99,14 @@
                     "also_tag_role": {
                         "type": "boolean",
                         "description": "If auto-generating a role, gives it the same tags as the function"
+                    },
+                    "requirements": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "description": "A list of the modules/dependencies that should be added to this lambda"
+                        }
                     }
-                    
                 },
                 "oneOf": [
                     {
@@ -156,13 +162,6 @@
                         "type": "string"
                     },
                     "description": "A list of layer version ARNs that are attached to this lambda"
-                },
-                "requirements": {
-                    "type": "array",
-                    "items": {
-                        "type": "string",
-                        "description": "A list of the modules/dependencies that should be added to this lambda"
-                    }
                 }
             }
         },
