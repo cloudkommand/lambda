@@ -156,6 +156,13 @@
                         "type": "string"
                     },
                     "description": "A list of layer version ARNs that are attached to this lambda"
+                },
+                "requirements": {
+                    "type": "array",
+                    "items": {
+                        "type": "string",
+                        "description": "A list of the modules/dependencies that should be added to this lambda"
+                    }
                 }
             }
         },
@@ -198,6 +205,13 @@
                     "name": {
                         "type": "string",
                         "description": "The name of the Lambda Layer. Will be auto-generated if not specified"
+                    },
+                    "requirements": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "description": "A list of the modules/dependencies that should be added to this layer"
+                        }
                     }
                 }
             },
