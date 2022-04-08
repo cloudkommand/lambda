@@ -37,19 +37,16 @@ def lambda_handler(event, context):
         if pass_back_data:
             pass
         elif event.get("op") == "upsert":
+            if cdef.get("requirements"):
+                eh.add_op("add_requirements", cdef.get("requirements"))
+            elif cdef.get("requirements.txt"):
+                eh.add_op("add_requirements", "$$file")
+                
             if prev_state and prev_state.get("props") and (prev_state.get("props").get("name")) != layer_name:
                 eh.add_op("remove_layer_versions", {"name":prev_state.get("props").get("name")})
                 eh.add_op("publish_layer_version")
-                if cdef.get("requirements"):
-                    eh.add_op("add_requirements", cdef.get("requirements"))
-                elif cdef.get("requirements.txt"):
-                    eh.add_op("add_requirements", "$$file")
             elif prev_state:
                 eh.add_op("check_if_update_required")
-                if cdef.get("requirements"):
-                    eh.add_op("add_requirements", cdef.get("requirements"))
-                elif cdef.get("requirements.txt"):
-                    eh.add_op("add_requirements", "$$file")
             else:
                 eh.add_op("publish_layer_version")
 
