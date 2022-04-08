@@ -27,7 +27,8 @@
                         "lambda:UntagResource",
                         "lambda:InvokeFunction",
                         "lambda:GetLayerVersion",
-                        "s3:GetObject"
+                        "s3:GetObject",
+                        "s3:PutObject"
                     ],
                     "Resource": "*"
                 }]
@@ -98,8 +99,18 @@
                     "also_tag_role": {
                         "type": "boolean",
                         "description": "If auto-generating a role, gives it the same tags as the function"
+                    },
+                    "requirements": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "description": "A list of the modules/dependencies that should be added to this lambda"
+                        }
+                    },
+                    "requirements.txt": {
+                        "type": "boolean",
+                        "description": "Set to true if a requirements.txt file should be extracted for installation. This should be placed directly underneath the top level folder"
                     }
-                    
                 },
                 "oneOf": [
                     {
@@ -181,7 +192,8 @@
                         "lambda:RemoveLayerVersionPermission",
                         "lambda:TagResource",
                         "lambda:UntagResource",
-                        "s3:GetObject"
+                        "s3:GetObject",
+                        "s3:PutObject"
                     ],
                     "Resource": "*"
                 }]
@@ -197,6 +209,17 @@
                     "name": {
                         "type": "string",
                         "description": "The name of the Lambda Layer. Will be auto-generated if not specified"
+                    },
+                    "requirements": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "description": "A list of the modules/dependencies that should be added to this layer"
+                        }
+                    },
+                    "requirements.txt": {
+                        "type": "boolean",
+                        "description": "Set to true if a requirements.txt file should be extracted for installation. This should be placed directly underneath the top level folder"
                     }
                 }
             },
