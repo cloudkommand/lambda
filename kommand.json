@@ -176,6 +176,9 @@
             "cloud": "AWS",
             "download_folder": true,
             "resources": ["AWS::lambda::layer"],
+            "environment_variables": {
+                "function_lambda_name": "@function:props.function_name"
+            },
             "policy": {
                 "Version": "2012-10-17",
                 "Statement": [{
