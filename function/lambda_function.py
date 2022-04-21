@@ -338,6 +338,7 @@ def create_zip(file_name, path):
 
     s3 = boto3.client("s3")
     with tempfile.TemporaryDirectory() as tmpdir:
+        os.mkdir(f"{tmpdir}/install")
         filename = f"{tmpdir}/install/lambda_function.py"
         with open(filename, "w+") as f:
             f.writelines(function_code)
