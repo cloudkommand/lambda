@@ -299,7 +299,7 @@ def lambda_handler(event, context):
             "progress": 100,
             "success": True,
             "logs": [{
-                "title": "Success Adding Requirements,
+                "title": "Success Adding Requirements",
                 "details": {"dependencies": requirements},
                 "timestamp_usec": time.time() * 1000000,
                 "is_error": False
@@ -313,7 +313,7 @@ def lambda_handler(event, context):
             "progress": 10,
             "error": str(e),
             "logs": [{
-                "title": "Error Adding Requirements,
+                "title": "Error Adding Requirements",
                 "details": {"error": str(e)},
                 "timestamp_usec": time.time() * 1000000,
                 "is_error": True
