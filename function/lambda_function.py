@@ -345,7 +345,7 @@ def create_zip(file_name, path):
 
         zipfile_name = f"{tmpdir}/file.zip"
         os.chdir(f"{tmpdir}/install")
-        create_zip(zipfile_name, tmpdir)
+        create_zip(zipfile_name, f"{tmpdir}/install")
         
         try:
             
