@@ -282,7 +282,7 @@ def lambda_handler(event, context):
             requirements_file = f"{install_directory}requirements.txt"
             if requirements != "$$file":
                 with open(requirements_file, "w") as f:
-                    f.writelines("%s\n" % i for i in requirements)
+                    f.writelines("%s\\n" % i for i in requirements)
             
             if os.path.exists(requirements_file):                
                 subprocess.call('pip install -r requirements.txt -t .'.split(), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
