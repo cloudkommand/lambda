@@ -270,7 +270,7 @@ def lambda_handler(event, context):
 
         s3 = boto3.client("s3")
         with tempfile.TemporaryDirectory() as tmpdir:
-            data = s3.get_object(Bucket=bucket, Key=object_name)["Body"]
+            data = s3.get_object(Bucket=bucket, Key=s3_key)["Body"]
             filename = f"{tmpdir}/file.zip"
             with open(filename, "wb") as f:
                 f.write(data.read())
