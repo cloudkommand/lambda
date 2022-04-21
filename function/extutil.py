@@ -255,7 +255,7 @@ class ExtensionHandler:
                                 self.props.update(props)
 
                 if not success:
-                    pass_back_data = result.get("pass_back_data")
+                    pass_back_data = result.get("pass_back_data") or {}
                     self.children[child_key] = pass_back_data
                     self.retry_error(f'{child_key} {pass_back_data.get("last_retry")}', true_progress, callback_sec=result['callback_sec'])
                     proceed=False
