@@ -294,7 +294,7 @@ def lambda_handler(event, context):
             zipfile_name = f"{tmpdir}/file2.zip"
             create_zip(zipfile_name, install_directory[:-1])
 
-            response = s3.upload_file(zipfile_name, bucket, object_name)
+            response = s3.upload_file(zipfile_name, bucket, s3_key)
             
         assembled = {
             "statusCode": 200,
@@ -307,6 +307,7 @@ def lambda_handler(event, context):
                 "is_error": False
             }],
         }
+        print(assembled)
         return json.loads(json.dumps(assembled, default=defaultconverter))
 
     except Exception as e:
@@ -322,6 +323,7 @@ def lambda_handler(event, context):
             }],
             "callback_sec":2
         }
+        print(assembled)
         return json.loads(json.dumps(assembled, default=defaultconverter))
         
         
