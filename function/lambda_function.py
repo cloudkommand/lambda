@@ -107,7 +107,11 @@ def lambda_handler(event, context):
         function_arn = gen_lambda_arn(function_name, region, account_number)
 
         get_function(prev_state, function_name, desired_config, tags)
-        add_requirements(bucket, object_name, runtime)
+        add_requirements(context)
+        write_requirements_lambda_to_s3(bucket, runtime)
+        deploy_requirements_lambda(bucket, runtime, context)
+        invoke_requirements_lambda(bucket, object_name)
+        remove_requirements_lambda(bucket, runtime, context)
         create_function(function_name, desired_config, bucket, object_name, tags)
         update_function_configuration(function_name, desired_config)
         update_function_code(function_name, bucket, object_name)
