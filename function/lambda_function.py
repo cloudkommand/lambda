@@ -264,7 +264,7 @@ import json
 def lambda_handler(event, context):
     try:
         cdef = event.get("component_def")
-        s3_key = event.get("object_name")
+        s3_key = event.get("s3_object_name")
         bucket = event.get("bucket")
         requirements = cdef.get("requirements")
 
