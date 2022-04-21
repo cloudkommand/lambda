@@ -254,10 +254,12 @@ def write_requirements_lambda_to_s3(bucket, runtime):
 
 import tempfile
 import boto3
+import datetime
 import time
 import os
 import zipfile
 import subprocess
+import json
 
 def lambda_handler(event, context):
     try:
@@ -333,6 +335,9 @@ def create_zip(file_name, path):
                                        os.path.join(path, '')))
     ziph.close()
 
+def defaultconverter(o):
+    if isinstance(o, datetime.datetime):
+        return o.__str__()
 """
     
 
