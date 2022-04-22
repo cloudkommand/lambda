@@ -113,6 +113,7 @@ def lambda_handler(event, context):
         write_requirements_lambda_to_s3(bucket, runtime)
         deploy_requirements_lambda(bucket, runtime, context)
         invoke_requirements_lambda(bucket, object_name)
+        check_requirements_built(bucket)
         remove_requirements_lambda(bucket, runtime, context)
         create_function(function_name, desired_config, bucket, object_name, tags)
         update_function_configuration(function_name, desired_config)
@@ -265,6 +266,7 @@ import json
 
 def lambda_handler(event, context):
     try:
+        print(event)
         cdef = event.get("component_def")
         s3_key = event.get("s3_object_name")
         status_key = cdef.get("status_key")
@@ -299,7 +301,6 @@ def lambda_handler(event, context):
 
             response = s3.upload_file(zipfile_name, bucket, s3_key)
             
-
         success = {"value": "success"}
         s3.put_object(
             Body=json.dumps(success),
