@@ -16,7 +16,9 @@ from extutil import remove_none_attributes, gen_log, creturn, handle_common_erro
 eh = ExtensionHandler()
 ALLOWED_RUNTIMES = ["python3.9", "python3.8", "python3.6", "python3.7", "nodejs14.x", "nodejs12.x", "nodejs10.x", "ruby2.7", "ruby2.5"]
 
+
 lambda_client = boto3.client("lambda")
+s3 = boto3.client("s3")
 def lambda_handler(event, context):
     try:
         print(event)
@@ -265,6 +267,7 @@ def lambda_handler(event, context):
     try:
         cdef = event.get("component_def")
         s3_key = event.get("s3_object_name")
+        status_key = cdef.get("status_key")
         bucket = event.get("bucket")
         requirements = cdef.get("requirements")
 
@@ -296,36 +299,21 @@ def lambda_handler(event, context):
 
             response = s3.upload_file(zipfile_name, bucket, s3_key)
             
-        assembled = {
-            "statusCode": 200,
-            "progress": 100,
-            "success": True,
-            "logs": [{
-                "title": "Success Adding Requirements",
-                "details": {"dependencies": requirements},
-                "timestamp_usec": time.time() * 1000000,
-                "is_error": False
-            }],
-        }
-        print(assembled)
-        return json.loads(json.dumps(assembled, default=defaultconverter))
+
+        success = {"value": "success"}
+        s3.put_object(
+            Body=json.dumps(success),
+            Bucket=bucket,
+            Key=status_key
+        )
 
     except Exception as e:
-        assembled = {
-            "statusCode": 200,
-            "progress": 10,
-            "error": str(e),
-            "logs": [{
-                "title": "Error Adding Requirements",
-                "details": {"error": str(e)},
-                "timestamp_usec": time.time() * 1000000,
-                "is_error": True
-            }],
-            "callback_sec":2
-        }
-        print(assembled)
-        return json.loads(json.dumps(assembled, default=defaultconverter))
-        
+        error = {"value": str(e)}
+        s3.put_object(
+            Body=json.dumps(error),
+            Bucket=bucket,
+            Key=status_key
+        )        
         
 def create_zip(file_name, path):
     ziph=zipfile.ZipFile(file_name, 'w', zipfile.ZIP_DEFLATED)
@@ -368,13 +356,15 @@ def defaultconverter(o):
 
 @ext(handler=eh, op="deploy_requirements_lambda")
 def deploy_requirements_lambda(bucket, runtime, context):
+    eh.add_state({"status_key": random_id()})
 
     component_def = {
         "name": eh.state["requirements_lambda_name"],
         "role_arn": eh.state["this_role_arn"],
+        "status_key": eh.state["status_key"],
         "runtime": runtime,
-        "memory_size": 512,
-        "timeout": 20,
+        "memory_size": 2048,
+        "timeout": 60,
         "description": "Temporary Lambda for adding requirements, will be removed",
     }
 
@@ -394,14 +384,39 @@ def invoke_requirements_lambda(bucket, object_name):
         "requirements": eh.state["requirements"]
     }
 
-    eh.invoke_extension(
+    proceed = eh.invoke_extension(
         arn=eh.state["requirements_lambda_name"], component_def=component_def, 
         object_name=object_name,
         child_key="Requirements", progress_start=30, progress_end=35,
-        op="upsert", ignore_props_links=True
+        op="upsert", ignore_props_links=True, synchronous=False
     )
 
-    eh.add_op("remove_requirements_lambda")
+    eh.add_op("check_requirements_built")
+
+
+@ext(handler=eh, op="check_requirements_built")
+def check_requirements_built(bucket):
+
+    try:
+        response = s3.get_object(Bucket=bucket, Key=eh.state["status_key"])['Body']
+        value = json.loads(response.read()).get("value")
+        eh.add_op("remove_requirements_lambda")
+        if value == "success":
+            eh.add_log("Requirements Built", response)
+        else:
+            eh.add_log(f"Requirements Errored", response)
+            eh.add_state({"requirements_failed": value})
+
+    except botocore.exceptions.ClientError as e:
+        if e.response['Error']['Code'] in ['NoSuchKey']:
+            eh.add_log("Build In Progress", {"error": None})
+            eh.retry_error("Build In Progress", progress=35)
+            # eh.add_log("Check Build Failed", {"error": str(e)}, True)
+            # eh.perm_error(str(e), progress=65)
+        else:
+            eh.add_log("Check Build Error", {"error": str(e)}, True)
+            eh.retry_error(str(e), progress=65)    
+
 
 @ext(handler=eh, op="remove_requirements_lambda")
 def remove_requirements_lambda(bucket, runtime, context):
@@ -410,8 +425,8 @@ def remove_requirements_lambda(bucket, runtime, context):
         "name": eh.state["requirements_lambda_name"],
         "role_arn": eh.state["this_role_arn"],
         "runtime": runtime,
-        "memory_size": 512,
-        "timeout": 20,
+        "memory_size": 2048,
+        "timeout": 60,
         "description": "Temporary Lambda for adding requirements, will be removed",
     }
 
@@ -421,6 +436,9 @@ def remove_requirements_lambda(bucket, runtime, context):
         child_key="Requirements Lambda", progress_start=35, progress_end=40,
         op="remove", ignore_props_links=True
     )
+
+    if eh.state.get("requirements_failed"):
+        eh.perm_error(f"End ", progress=40)
 
 @ext(handler=eh, op="create_function")
 def create_function(function_name, desired_config, bucket, object_name, tags):

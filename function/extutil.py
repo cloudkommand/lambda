@@ -186,7 +186,7 @@ class ExtensionHandler:
     def invoke_extension(self, arn, component_def, child_key, 
             progress_start, progress_end, object_name=None, 
             op=None, merge_props=False, links_prefix=None,
-            ignore_props_links=False):
+            ignore_props_links=False, synchronous=True):
 
         if merge_props:
             raise Exception("Cannot Merge Props")
@@ -216,7 +216,7 @@ class ExtensionHandler:
         try:
             response = l_client.invoke(
                 FunctionName=arn,
-                InvocationType="RequestResponse",
+                InvocationType="RequestResponse" if synchronous else "Event",
                 LogType="None",
                 Payload=payload
             )
@@ -225,46 +225,48 @@ class ExtensionHandler:
                 print(f'Error = {response["Payload"].read()}')
                 raise Exception(f'Function Error = {response.get("FunctionError")}')
 
-            result = json.loads(response["Payload"].read())
+            if synchronous:
+                result = json.loads(response["Payload"].read())
 
-            logs = result.get("logs") or []
-            progress = result.get("progress") or 0
-            success = result.get("success")
-            error = result.get("error")
-            props = result.get("props") or {}
-            # state = result.get("state") Not Handling child state ATM
-            links = result.get("links") or {}
-            
-            true_progress = int(progress_start + (progress/100 * (progress_end - progress_start)))
-            self.logs.extend(logs)
-            if error:
-                self.perm_error(error, true_progress)
-                return False
-            else:
-                if op == "upsert":
-                    if not ignore_props_links:
-                        if links_prefix:
-                            links = {f"{links_prefix} {k}":v for k,v in links.items()} 
-                        self.links.update(links)
-                        if props:
-                            if isinstance(self.props.get(child_key), dict):
-                                self.props[child_key].update(props)
-                            else:
-                                self.props[child_key] = props
-                            if merge_props:
-                                self.props.update(props)
-
-                if not success:
-                    pass_back_data = result.get("pass_back_data") or {}
-                    self.children[child_key] = pass_back_data
-                    self.retry_error(f'{child_key} {pass_back_data.get("last_retry")}', true_progress, callback_sec=result['callback_sec'])
-                    proceed=False
-
+                logs = result.get("logs") or []
+                progress = result.get("progress") or 0
+                success = result.get("success")
+                error = result.get("error")
+                props = result.get("props") or {}
+                # state = result.get("state") Not Handling child state ATM
+                links = result.get("links") or {}
+                
+                true_progress = int(progress_start + (progress/100 * (progress_end - progress_start)))
+                self.logs.extend(logs)
+                if error:
+                    self.perm_error(error, true_progress)
+                    return False
                 else:
-                    if child_key in self.children:
-                        del self.children[child_key]
-                    proceed= True
+                    if op == "upsert":
+                        if not ignore_props_links:
+                            if links_prefix:
+                                links = {f"{links_prefix} {k}":v for k,v in links.items()} 
+                            self.links.update(links)
+                            if props:
+                                if isinstance(self.props.get(child_key), dict):
+                                    self.props[child_key].update(props)
+                                else:
+                                    self.props[child_key] = props
+                                if merge_props:
+                                    self.props.update(props)
 
+                    if not success:
+                        pass_back_data = result.get("pass_back_data") or {}
+                        self.children[child_key] = pass_back_data
+                        self.retry_error(f'{child_key} {pass_back_data.get("last_retry")}', true_progress, callback_sec=result['callback_sec'])
+                        proceed=False
+
+                    else:
+                        if child_key in self.children:
+                            del self.children[child_key]
+                        proceed= True
+            else:
+                proceed=True
 
         except botocore.exceptions.ClientError as e:
             proceed=False
