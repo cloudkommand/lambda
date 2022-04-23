@@ -196,6 +196,7 @@
                         "lambda:RemoveLayerVersionPermission",
                         "lambda:TagResource",
                         "lambda:UntagResource",
+                        "s3:ListBucket",
                         "s3:GetObject",
                         "s3:PutObject"
                     ],
