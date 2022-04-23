@@ -25,7 +25,6 @@
                         "lambda:UpdateFunctionConfiguration",
                         "lambda:TagResource",
                         "lambda:UntagResource",
-                        "lambda:InvokeFunction",
                         "lambda:GetLayerVersion",
                         "s3:ListBucket",
                         "s3:GetObject",
@@ -188,6 +187,7 @@
                     "Action": [
                         "iam:PassRole",
                         "lambda:GetFunction",
+                        "lambda:InvokeFunction",
                         "lambda:AddLayerVersionPermission",
                         "lambda:DeleteLayerVersion",
                         "lambda:GetLayerVersion",
