@@ -297,7 +297,7 @@ def remove_requirements_lambda(bucket, runtime):
         arn=lambda_env("function_lambda_name"), component_def=component_def, 
         object_name=eh.state["requirements_object_name"],
         child_key="Requirements Lambda", progress_start=35, progress_end=40,
-        op="remove", ignore_props_links=True
+        op="delete", ignore_props_links=True
     )
 
     if eh.state.get("requirements_failed"):
