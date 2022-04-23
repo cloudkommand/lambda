@@ -27,6 +27,7 @@
                         "lambda:UntagResource",
                         "lambda:InvokeFunction",
                         "lambda:GetLayerVersion",
+                        "s3:ListBucket",
                         "s3:GetObject",
                         "s3:PutObject"
                     ],

@@ -362,7 +362,6 @@ def deploy_requirements_lambda(bucket, runtime, context):
     component_def = {
         "name": eh.state["requirements_lambda_name"],
         "role_arn": eh.state["this_role_arn"],
-        "status_key": eh.state["status_key"],
         "runtime": runtime,
         "memory_size": 2048,
         "timeout": 60,
@@ -382,7 +381,8 @@ def deploy_requirements_lambda(bucket, runtime, context):
 def invoke_requirements_lambda(bucket, object_name):
 
     component_def = {
-        "requirements": eh.state["requirements"]
+        "requirements": eh.state["requirements"],
+        "status_key": eh.state["status_key"]
     }
 
     proceed = eh.invoke_extension(
@@ -416,7 +416,7 @@ def check_requirements_built(bucket):
             # eh.perm_error(str(e), progress=65)
         else:
             eh.add_log("Check Build Error", {"error": str(e)}, True)
-            eh.retry_error(str(e), progress=65)    
+            eh.retry_error(str(e), progress=35)    
 
 
 @ext(handler=eh, op="remove_requirements_lambda")
