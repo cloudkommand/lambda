@@ -205,6 +205,8 @@ def get_function(prev_state, function_name, desired_config, tags):
         if not eh.ops.get("update_function_configuration"):
             current_layer_arns = set(map(lambda x: x['Arn'], current_config.get("Layers") or []))
             desired_layer_arns = set(desired_config.get("Layers") or [])
+            print(f"current_layer_arns = {current_layer_arns}")
+            print(f"desired_layer_arns = {desired_layer_arns}")
             if current_layer_arns != desired_layer_arns:
                 eh.add_log("Desired Layers Don't Match", {"current": current_layer_arns, "desired": desired_layer_arns})
                 eh.add_op("update_function_configuration")
