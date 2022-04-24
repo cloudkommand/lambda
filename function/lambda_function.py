@@ -16,6 +16,9 @@ from extutil import remove_none_attributes, gen_log, creturn, handle_common_erro
 eh = ExtensionHandler()
 ALLOWED_RUNTIMES = ["python3.9", "python3.8", "python3.6", "python3.7", "nodejs14.x", "nodejs12.x", "nodejs10.x", "ruby2.7", "ruby2.5"]
 
+
+lambda_client = boto3.client("lambda")
+s3 = boto3.client("s3")
 def lambda_handler(event, context):
     try:
         print(event)
@@ -80,9 +83,11 @@ def lambda_handler(event, context):
             eh.add_op("get_lambda")
             eh.add_op("gen_props")
             if cdef.get("requirements"):
-                eh.add_op("add_requirements", cdef.get("requirements"))
+                eh.add_op("add_requirements")
+                eh.add_state({"requirements": cdef.get("requirements")})
             elif cdef.get("requirements.txt"):
-                eh.add_op("add_requirements", "$$file")
+                eh.add_op("add_requirements")
+                eh.add_state({"requirements": "$$file"})
         elif op == "delete":
             eh.add_op('remove_role')
             eh.add_op("remove_old", {"name": function_name})
@@ -104,7 +109,12 @@ def lambda_handler(event, context):
         function_arn = gen_lambda_arn(function_name, region, account_number)
 
         get_function(prev_state, function_name, desired_config, tags)
-        add_requirements(bucket, object_name)
+        add_requirements(context)
+        write_requirements_lambda_to_s3(bucket, runtime)
+        deploy_requirements_lambda(bucket, runtime, context)
+        invoke_requirements_lambda(bucket, object_name)
+        check_requirements_built(bucket)
+        remove_requirements_lambda(bucket, runtime, context)
         create_function(function_name, desired_config, bucket, object_name, tags)
         update_function_configuration(function_name, desired_config)
         update_function_code(function_name, bucket, object_name)
@@ -158,12 +168,13 @@ def upsert_role(prev_state, policies, policy_arns, role_description, role_tags):
 
 @ext(handler=eh, op="remove_role")
 def remove_role(policies, policy_arns, role_description, role_tags):
-    manage_role("delete", policies, policy_arns, role_description, role_tags)
+    if not eh.state.get("role_arn"):
+        proceed = manage_role("delete", policies, policy_arns, role_description, role_tags)
     
 
 @ext(handler=eh, op="get_lambda")
 def get_function(prev_state, function_name, desired_config, tags):
-    lambda_client = boto3.client("lambda")
+    # lambda_client = boto3.client("lambda")
 
     if prev_state and prev_state.get("props", {}).get("name"):
         old_function_name = prev_state["props"]["name"]
@@ -194,6 +205,8 @@ def get_function(prev_state, function_name, desired_config, tags):
         if not eh.ops.get("update_function_configuration"):
             current_layer_arns = set(map(lambda x: x['Arn'], current_config.get("Layers") or []))
             desired_layer_arns = set(desired_config.get("Layers") or [])
+            print(f"current_layer_arns = {current_layer_arns}")
+            print(f"desired_layer_arns = {desired_layer_arns}")
             if current_layer_arns != desired_layer_arns:
                 eh.add_log("Desired Layers Don't Match", {"current": current_layer_arns, "desired": desired_layer_arns})
                 eh.add_op("update_function_configuration")
@@ -219,61 +232,220 @@ def get_function(prev_state, function_name, desired_config, tags):
     
 
 @ext(handler=eh, op="add_requirements")
-def add_requirements(bucket, object_name):
-    requirements = eh.ops["add_requirements"]
+def add_requirements(context):
+    try:
+        response = lambda_client.get_function(
+            FunctionName=context.function_name
+        )
+        role_arn = response["Configuration"]["Role"]
+        eh.add_state({"this_role_arn": role_arn})
+        eh.add_op("write_requirements_lambda_to_s3")
+        
+    except ClientError as e:
+        handle_common_errors(e, eh, "Get Requirements Role Failed", 25)
 
-    s3 = boto3.client("s3")
-    with tempfile.TemporaryDirectory() as tmpdir:
-        try:
-            data = s3.get_object(Bucket=bucket, Key=object_name)["Body"]
+@ext(handler=eh, op="write_requirements_lambda_to_s3")
+def write_requirements_lambda_to_s3(bucket, runtime):
+
+    requirements_lambda_name = random_id()
+    requirements_object_name = f"requirements/{random_id()}"
+    eh.add_state({
+        "requirements_lambda_name": requirements_lambda_name,
+        "requirements_object_name": requirements_object_name
+    })
+
+    if runtime.startswith("python"):
+        function_code = """
+
+import tempfile
+import boto3
+import datetime
+import time
+import os
+import zipfile
+import subprocess
+import json
+
+def lambda_handler(event, context):
+    try:
+        print(event)
+        cdef = event.get("component_def")
+        s3_key = event.get("s3_object_name")
+        status_key = cdef.get("status_key")
+        bucket = event.get("bucket")
+        requirements = cdef.get("requirements")
+
+        s3 = boto3.client("s3")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            data = s3.get_object(Bucket=bucket, Key=s3_key)["Body"]
             filename = f"{tmpdir}/file.zip"
             with open(filename, "wb") as f:
                 f.write(data.read())
-        except ClientError as e:
-            handle_common_errors(e, eh, "Download Zipfile Failed", 17)
-        except Exception as e:
-            print(str(e))
-            raise e
-
-        install_directory = f"{tmpdir}/install/"
-        os.mkdir(install_directory)
-        os.chdir(install_directory)
-        with zipfile.ZipFile(filename, 'r') as archive:
-            archive.extractall()
-
-        requirements_file = f"{install_directory}requirements.txt"
-        if requirements != "$$file":
-            with open(requirements_file, "w") as f:
-                f.writelines("%s\n" % i for i in requirements)
-        
-        if os.path.exists(requirements_file):
-            # with open(requirements_file, "r") as f:
-            #     lines = list(f.readlines())
-            #     eh.add_log("Requirements Found", {"lines": lines})
             
-            subprocess.call('pip install -r requirements.txt -t .'.split(), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            eh.add_log("Requirements installed", {"requirements": requirements})
-        else:
-            eh.add_log("No Requirements to Install", {"files": os.listdir()})
+            install_directory = f"{tmpdir}/install/"
+            os.mkdir(install_directory)
+            os.chdir(install_directory)
+            with zipfile.ZipFile(filename, 'r') as archive:
+                archive.extractall()
 
-        print(os.listdir())
+            requirements_file = f"{install_directory}requirements.txt"
+            if requirements != "$$file":
+                with open(requirements_file, "w") as f:
+                    f.writelines("%s\\n" % i for i in requirements)
+            
+            if os.path.exists(requirements_file):                
+                subprocess.call('pip install -r requirements.txt -t .'.split(), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-        zipfile_name = f"{tmpdir}/file2.zip"
-        create_zip(zipfile_name, install_directory[:-1])
+            print(os.listdir())
 
+            zipfile_name = f"{tmpdir}/file2.zip"
+            create_zip(zipfile_name, install_directory[:-1])
+
+            response = s3.upload_file(zipfile_name, bucket, s3_key)
+            
+        success = {"value": "success"}
+        s3.put_object(
+            Body=json.dumps(success),
+            Bucket=bucket,
+            Key=status_key
+        )
+
+    except Exception as e:
+        error = {"value": str(e)}
+        s3.put_object(
+            Body=json.dumps(error),
+            Bucket=bucket,
+            Key=status_key
+        )        
+        
+def create_zip(file_name, path):
+    ziph=zipfile.ZipFile(file_name, 'w', zipfile.ZIP_DEFLATED)
+    # ziph is zipfile handle
+    for root, dirs, files in os.walk(path):
+        for file in files:
+            ziph.write(os.path.join(root, file), 
+                       os.path.relpath(os.path.join(root, file), 
+                                       os.path.join(path, '')))
+    ziph.close()
+
+def defaultconverter(o):
+    if isinstance(o, datetime.datetime):
+        return o.__str__()
+"""
+    
+
+    s3 = boto3.client("s3")
+    with tempfile.TemporaryDirectory() as tmpdir:
+        os.mkdir(f"{tmpdir}/install")
+        filename = f"{tmpdir}/install/lambda_function.py"
+        with open(filename, "w+") as f:
+            f.writelines(function_code)
+
+        zipfile_name = f"{tmpdir}/file.zip"
+        os.chdir(f"{tmpdir}/install")
+        create_zip(zipfile_name, f"{tmpdir}/install")
+        
         try:
-            response = s3.upload_file(zipfile_name, bucket, object_name)
-            eh.add_log("Wrote Requirements to S3", response)
+            
+            response = s3.upload_file(zipfile_name, bucket, requirements_object_name)
+            eh.add_log("Requirements Lambda to S3", response)
         except boto3.exceptions.S3UploadFailedError:
-            eh.add_log("Writing Requirements to S3 Failed", {"zipfile_name": zipfile_name, "requirements": requirements})
-            eh.retry_error("S3 Upload Error for Requirements", 25)
+            eh.add_log("Requirements Lambda to S3 Failed", {"zipfile_name": zipfile_name})
+            eh.retry_error("S3 Upload Error for Requirements Lambda", 25)
         except ClientError as e:
-            handle_common_errors(e, eh, "Writing Requirements to S3 Failed", 25)
+            handle_common_errors(e, eh, "Requirements Lambda to S3 Failed", 25)
 
+    eh.add_op("deploy_requirements_lambda")
+
+@ext(handler=eh, op="deploy_requirements_lambda")
+def deploy_requirements_lambda(bucket, runtime, context):
+    eh.add_state({"status_key": random_id()})
+
+    component_def = {
+        "name": eh.state["requirements_lambda_name"],
+        "role_arn": eh.state["this_role_arn"],
+        "runtime": runtime,
+        "memory_size": 2048,
+        "timeout": 60,
+        "description": "Temporary Lambda for adding requirements, will be removed",
+    }
+
+    eh.invoke_extension(
+        arn=context.function_name, component_def=component_def, 
+        object_name=eh.state["requirements_object_name"],
+        child_key="Requirements Lambda", progress_start=25, progress_end=30,
+        op="upsert", ignore_props_links=True
+    )
+
+    eh.add_op("invoke_requirements_lambda")
+
+@ext(handler=eh, op="invoke_requirements_lambda")
+def invoke_requirements_lambda(bucket, object_name):
+
+    component_def = {
+        "requirements": eh.state["requirements"],
+        "status_key": eh.state["status_key"]
+    }
+
+    proceed = eh.invoke_extension(
+        arn=eh.state["requirements_lambda_name"], component_def=component_def, 
+        object_name=object_name,
+        child_key="Requirements", progress_start=30, progress_end=35,
+        op="upsert", ignore_props_links=True, synchronous=False
+    )
+
+    eh.add_op("check_requirements_built")
+
+
+@ext(handler=eh, op="check_requirements_built")
+def check_requirements_built(bucket):
+
+    try:
+        response = s3.get_object(Bucket=bucket, Key=eh.state["status_key"])['Body']
+        value = json.loads(response.read()).get("value")
+        eh.add_op("remove_requirements_lambda")
+        if value == "success":
+            eh.add_log("Requirements Built", response)
+        else:
+            eh.add_log(f"Requirements Errored", response)
+            eh.add_state({"requirements_failed": value})
+
+    except botocore.exceptions.ClientError as e:
+        if e.response['Error']['Code'] in ['NoSuchKey']:
+            eh.add_log("Build In Progress", {"error": None})
+            eh.retry_error("Build In Progress", progress=35)
+            # eh.add_log("Check Build Failed", {"error": str(e)}, True)
+            # eh.perm_error(str(e), progress=65)
+        else:
+            eh.add_log("Check Build Error", {"error": str(e)}, True)
+            eh.retry_error(str(e), progress=35)    
+
+
+@ext(handler=eh, op="remove_requirements_lambda")
+def remove_requirements_lambda(bucket, runtime, context):
+
+    component_def = {
+        "name": eh.state["requirements_lambda_name"],
+        "role_arn": eh.state["this_role_arn"],
+        "runtime": runtime,
+        "memory_size": 2048,
+        "timeout": 60,
+        "description": "Temporary Lambda for adding requirements, will be removed",
+    }
+
+    eh.invoke_extension(
+        arn=context.function_name, component_def=component_def, 
+        object_name=eh.state["requirements_object_name"],
+        child_key="Requirements Lambda", progress_start=35, progress_end=40,
+        op="delete", ignore_props_links=True
+    )
+
+    if eh.state.get("requirements_failed"):
+        eh.perm_error(f"End ", progress=40)
 
 @ext(handler=eh, op="create_function")
 def create_function(function_name, desired_config, bucket, object_name, tags):
-    lambda_client = boto3.client("lambda")
+    # lambda_client = boto3.client("lambda")
 
     def retry_create(message):
         eh.add_log("Potential Race Condition Hit", {"Error": message}, is_error=True)
@@ -315,7 +487,7 @@ def create_function(function_name, desired_config, bucket, object_name, tags):
 
 @ext(handler=eh, op="update_function_configuration")
 def update_function_configuration(function_name, desired_config):
-    lambda_client = boto3.client("lambda")
+    # lambda_client = boto3.client("lambda")
     print(f"Inside update config, desired_config = {desired_config}")
     try:
         _ = desired_config.pop("Code")
@@ -336,7 +508,7 @@ def update_function_configuration(function_name, desired_config):
 
 @ext(handler=eh, op="update_function_code")
 def update_function_code(function_name, bucket, object_name):
-    lambda_client = boto3.client("lambda")
+    # lambda_client = boto3.client("lambda")
 
     try:
         lambda_response = lambda_client.update_function_code(
@@ -357,7 +529,7 @@ def update_function_code(function_name, bucket, object_name):
 
 @ext(handler=eh, op="gen_props")
 def gen_props(function_name, region):
-    lambda_client = boto3.client("lambda")
+    # lambda_client = boto3.client("lambda")
 
     try:
         response = lambda_client.get_function(
@@ -377,11 +549,11 @@ def gen_props(function_name, region):
             "Function": gen_lambda_link(function_name, region)
         })
     except ClientError as e:
-        handle_common_errors(e, eh, "Get Props Failed: ", 98)
+        handle_common_errors(e, eh, "Get Props Failed", 98)
 
 @ext(handler=eh, op="add_tags")
 def add_tags(function_arn):
-    lambda_client = boto3.client("lambda")
+    # lambda_client = boto3.client("lambda")
     tags = eh.ops['add_tags']
 
     try:
@@ -397,7 +569,7 @@ def add_tags(function_arn):
 
 @ext(handler=eh, op="remove_tags")
 def remove_tags(function_arn):
-    lambda_client = boto3.client("lambda")
+    # lambda_client = boto3.client("lambda")
 
     try:
         lambda_client.untag_resource(
@@ -419,7 +591,7 @@ def gen_lambda_link(function_name, region):
 
 @ext(handler=eh, op="remove_old")
 def remove_function():
-    lambda_client = boto3.client("lambda")
+    # lambda_client = boto3.client("lambda")
 
     op_def = eh.ops['remove_old']
     function_to_delete = op_def['name']
@@ -438,3 +610,44 @@ def remove_function():
             eh.retry_error(str(e), 90 if create_and_delete else 15)
             eh.add_log(f"Error Deleting Function", {"name": function_to_delete}, True)
 
+
+# except ClientError as e:
+#             handle_common_errors(e, eh, "Download Zipfile Failed", 17)
+#         except Exception as e:
+#             print(str(e))
+#             raise e
+
+#         install_directory = f"{tmpdir}/install/"
+#         os.mkdir(install_directory)
+#         os.chdir(install_directory)
+#         with zipfile.ZipFile(filename, 'r') as archive:
+#             archive.extractall()
+
+#         requirements_file = f"{install_directory}requirements.txt"
+#         if requirements != "$$file":
+#             with open(requirements_file, "w") as f:
+#                 f.writelines("%s\n" % i for i in requirements)
+        
+#         if os.path.exists(requirements_file):
+#             # with open(requirements_file, "r") as f:
+#             #     lines = list(f.readlines())
+#             #     eh.add_log("Requirements Found", {"lines": lines})
+            
+#             subprocess.call('pip install -r requirements.txt -t .'.split(), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+#             eh.add_log("Requirements installed", {"requirements": requirements})
+#         else:
+#             eh.add_log("No Requirements to Install", {"files": os.listdir()})
+
+#         print(os.listdir())
+
+#         zipfile_name = f"{tmpdir}/file2.zip"
+#         create_zip(zipfile_name, install_directory[:-1])
+
+#         try:
+#             response = s3.upload_file(zipfile_name, bucket, object_name)
+#             eh.add_log("Wrote Requirements to S3", response)
+#         except boto3.exceptions.S3UploadFailedError:
+#             eh.add_log("Writing Requirements to S3 Failed", {"zipfile_name": zipfile_name, "requirements": requirements})
+#             eh.retry_error("S3 Upload Error for Requirements", 25)
+#         except ClientError as e:
+#             handle_common_errors(e, eh, "Writing Requirements to S3 Failed", 25)

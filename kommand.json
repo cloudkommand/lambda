@@ -25,8 +25,8 @@
                         "lambda:UpdateFunctionConfiguration",
                         "lambda:TagResource",
                         "lambda:UntagResource",
-                        "lambda:InvokeFunction",
                         "lambda:GetLayerVersion",
+                        "s3:ListBucket",
                         "s3:GetObject",
                         "s3:PutObject"
                     ],
@@ -176,6 +176,9 @@
             "cloud": "AWS",
             "download_folder": true,
             "resources": ["AWS::lambda::layer"],
+            "environment_variables": {
+                "function_lambda_name": "@function:props.function_name"
+            },
             "policy": {
                 "Version": "2012-10-17",
                 "Statement": [{
@@ -183,6 +186,8 @@
                     "Effect": "Allow",
                     "Action": [
                         "iam:PassRole",
+                        "lambda:GetFunction",
+                        "lambda:InvokeFunction",
                         "lambda:AddLayerVersionPermission",
                         "lambda:DeleteLayerVersion",
                         "lambda:GetLayerVersion",
@@ -192,6 +197,7 @@
                         "lambda:RemoveLayerVersionPermission",
                         "lambda:TagResource",
                         "lambda:UntagResource",
+                        "s3:ListBucket",
                         "s3:GetObject",
                         "s3:PutObject"
                     ],
@@ -220,6 +226,12 @@
                     "requirements.txt": {
                         "type": "boolean",
                         "description": "Set to true if a requirements.txt file should be extracted for installation. This should be placed directly underneath the top level folder"
+                    },
+                    "requirements_runtime": {
+                        "type": "string",
+                        "description": "The runtime to build your requirements file inside",
+                        "enum": ["python3.6", "python3.7", "python3.8", "python3.9", "nodejs12.x", "nodejs14.x"],
+                        "default": "python3.9"
                     }
                 }
             },
