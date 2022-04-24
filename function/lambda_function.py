@@ -242,7 +242,7 @@ def add_requirements(context):
         eh.add_op("write_requirements_lambda_to_s3")
         
     except ClientError as e:
-        handle_common_errors(e, eh, "Get Requirements Role Failed: ", 25)
+        handle_common_errors(e, eh, "Get Requirements Role Failed", 25)
 
 @ext(handler=eh, op="write_requirements_lambda_to_s3")
 def write_requirements_lambda_to_s3(bucket, runtime):
@@ -549,7 +549,7 @@ def gen_props(function_name, region):
             "Function": gen_lambda_link(function_name, region)
         })
     except ClientError as e:
-        handle_common_errors(e, eh, "Get Props Failed: ", 98)
+        handle_common_errors(e, eh, "Get Props Failed", 98)
 
 @ext(handler=eh, op="add_tags")
 def add_tags(function_arn):
