@@ -249,6 +249,79 @@
                     "description": "The version number of the current layer version"
                 }
             }
+        },
+        "eventmapping": {
+            "type": "ext",
+            "displayname": "CK Lambda Event Mapping",
+            "description": "Deploys an AWS Lambda EventSourceMapping. These mappings enable you to subscribe to an event source and trigger a Lambda function when that event is triggered",
+            "cloud": "AWS",
+            "download_folder": true,
+            "resources": ["AWS::lambda::eventsourcemapping"],
+            "policy": {
+                "Version": "2012-10-17",
+                "Statement": [{
+                    "Sid": "Vis",
+                    "Effect": "Allow",
+                    "Action": [
+                        "iam:PassRole",
+                        "lambda:GetFunction",
+                        "lambda:CreateEventSourceMapping",
+                        "lambda:DeleteEventSourceMapping",
+                        "lambda:ListEventSourceMappings",
+                        "lambda:GetEventSourceMapping",
+                        "lambda:UpdateEventSourceMapping",
+                        "lambda:TagResource",
+                        "lambda:UntagResource",
+                        "s3:GetObject"
+                    ],
+                    "Resource": "*"
+                }]
+            },
+            "input": {
+                "type": "object",
+                "properties": {
+                    "compatible_runtimes": {
+                        "type": "array",
+                        "description": "A list of the compatible runtimes of the layer",
+                        "default": ["python3.9", "python3.8", "python3.7", "python3.6"]
+                    },
+                    "name": {
+                        "type": "string",
+                        "description": "The name of the Lambda Layer. Will be auto-generated if not specified"
+                    },
+                    "requirements": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "description": "A list of the modules/dependencies that should be added to this layer"
+                        }
+                    },
+                    "requirements.txt": {
+                        "type": "boolean",
+                        "description": "Set to true if a requirements.txt file should be extracted for installation. This should be placed directly underneath the top level folder"
+                    },
+                    "requirements_runtime": {
+                        "type": "string",
+                        "description": "The runtime to build your requirements file inside",
+                        "enum": ["python3.6", "python3.7", "python3.8", "python3.9", "nodejs12.x", "nodejs14.x"],
+                        "default": "python3.9"
+                    }
+                }
+            },
+            "props": {
+                "uuid": {
+                    "type": "string",
+                    "description": "The UUID of the Event Source Mapping"
+                },
+                "function_arn": {
+                    "type": "string",
+                    "description": "The lambda function ARN for this mapping"
+                },
+                "event_source_arn": {
+                    "type": "string",
+                    "description": "The event source ARN used in this mapping"
+                }
+            }
         }
     },
     "repos": {
