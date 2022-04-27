@@ -81,7 +81,7 @@ def lambda_handler(event, context):
                 "OnFailure": remove_none_attributes({
                     "Destination": on_failure_arn
                 }) or None
-            }),
+            }) or None,
             "MaximumRecordAgeInSeconds": maximum_record_age,
             "BisectBatchOnFunctionError": bisect_batch_on_error,
             "MaximumRetryAttempts": maximum_retry_attempts,
