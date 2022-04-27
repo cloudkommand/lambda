@@ -272,12 +272,7 @@
                         "lambda:UpdateEventSourceMapping",
                         "lambda:TagResource",
                         "lambda:UntagResource",
-                        "s3:GetObject",
-                        "sqs:SendMessage",
-                        "sqs:ReceiveMessage",
-                        "sqs:AddPermission",
-                        "sqs:RemovePermission",
-                        "sqs:GetQueueUrl"
+                        "s3:GetObject"
                     ],
                     "Resource": "*"
                 }]
