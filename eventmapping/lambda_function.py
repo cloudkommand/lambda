@@ -155,10 +155,11 @@ def create_event_mapping(event_source_arn, function_name, configuration):
         eh.add_log("Created New Event Mapping", role_response)
 
     except botocore.exceptions.ClientError as e:
+        print(str(e))
         if "An error occurred (InvalidParameterValueException) when calling the CreateEventSourceMapping operation: The provided execution role does not have permissions to call ReceiveMessage on SQS" in str(e):
             eh.add_log("Function Cannot Receive Messages", {"function_arn": function_name}, is_error=True)
             eh.perm_error(str(e), 20)
-        if e.response['Error']['Code'] == 'ResourceConflictException':
+        elif e.response['Error']['Code'] == 'ResourceConflictException':
             pass #Recreate?
         else:
             handle_common_errors(e, eh, "Error Creating Mapping", 20, ["InvalidParameterValueException", "ResourceNotFoundException"])
