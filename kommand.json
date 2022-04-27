@@ -273,8 +273,8 @@
                         "lambda:TagResource",
                         "lambda:UntagResource",
                         "s3:GetObject",
-                        "sqs.SendMessage",
-                        "sqs.ReceiveMessage"
+                        "sqs:SendMessage",
+                        "sqs:ReceiveMessage"
                     ],
                     "Resource": "*"
                 }]
