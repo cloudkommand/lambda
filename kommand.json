@@ -274,7 +274,10 @@
                         "lambda:UntagResource",
                         "s3:GetObject",
                         "sqs:SendMessage",
-                        "sqs:ReceiveMessage"
+                        "sqs:ReceiveMessage",
+                        "sqs:AddPermission",
+                        "sqs:RemovePermission",
+                        "sqs:GetQueueUrl"
                     ],
                     "Resource": "*"
                 }]
