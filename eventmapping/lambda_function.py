@@ -117,7 +117,7 @@ def get_event_mapping(prev_state, event_source_arn, function_name, configuration
         current_configurations = list(filter(lambda x: x["FunctionArn"] == function_name, response.get("EventSourceMappings") or []))
         if not len(current_configurations):
             eh.add_op("create_event_mapping")
-            if prev_state.get("props", {}).get("uuid"):
+            if prev_state and prev_state.get("props", {}).get("uuid"):
                 eh.add_op("delete_event_mapping", {"uuid":prev_state["props"]["uuid"], "create_and_remove": True})
         else:
             current_configuration = current_configurations[0]
