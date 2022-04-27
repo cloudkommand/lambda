@@ -36,7 +36,7 @@ def lambda_handler(event, context):
             raise Exception("event_source_arn and function_arn must be defined")
         
         enabled = cdef.get("enabled") if (cdef.get("enabled") is not None) else True
-        batch_size = cdef.get("batch_size") or 100
+        batch_size = cdef.get("batch_size") or 10
         filter_criteria = cdef.get("filter_criteria")
         maximum_batching_window = cdef.get("maximum_batching_window")
         parallelization_factor = cdef.get("parallelization_factor")
