@@ -156,7 +156,7 @@ def create_event_mapping(event_source_arn, function_name, configuration):
 
     except botocore.exceptions.ClientError as e:
         if "An error occurred (InvalidParameterValueException) when calling the CreateEventSourceMapping operation: The provided execution role does not have permissions to call" in str(e):
-            eh.add_log("Lambda Needs Additional Permissions", {"function_arn": function_name}, is_error=True)
+            eh.add_log("Lambda Needs Additional SQS Permissions", {"function_arn": function_name}, is_error=True)
             eh.perm_error(str(e), 20)
         elif e.response['Error']['Code'] == 'ResourceConflictException':
             pass #Recreate?
