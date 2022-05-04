@@ -280,31 +280,27 @@
             "input": {
                 "type": "object",
                 "properties": {
-                    "compatible_runtimes": {
+                    "event_source_arn": {
                         "type": "array",
-                        "description": "A list of the compatible runtimes of the layer",
-                        "default": ["python3.9", "python3.8", "python3.7", "python3.6"]
+                        "description": "The ARN of the event source to subscribe to a lambda",
+                        "required": true
                     },
-                    "name": {
+                    "function_arn": {
                         "type": "string",
-                        "description": "The name of the Lambda Layer. Will be auto-generated if not specified"
+                        "description": "The ARN of the Lambda function to invoke when the event is triggered",
+                        "required": true
                     },
-                    "requirements": {
-                        "type": "array",
-                        "items": {
-                            "type": "string",
-                            "description": "A list of the modules/dependencies that should be added to this layer"
-                        }
+                    "batch_size": {
+                        "type": "integer",
+                        "description": "The number of records to send in a single invocation",
+                        "default": 10,
+                        "minimum": 1,
+                        "maximum": 10000
                     },
-                    "requirements.txt": {
+                    "enabled": {
                         "type": "boolean",
-                        "description": "Set to true if a requirements.txt file should be extracted for installation. This should be placed directly underneath the top level folder"
-                    },
-                    "requirements_runtime": {
-                        "type": "string",
-                        "description": "The runtime to build your requirements file inside",
-                        "enum": ["python3.6", "python3.7", "python3.8", "python3.9", "nodejs12.x", "nodejs14.x"],
-                        "default": "python3.9"
+                        "description": "Set to false if you want to temporarily disable this event mapping",
+                        "default": true
                     }
                 }
             },
