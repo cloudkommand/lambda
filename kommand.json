@@ -249,6 +249,75 @@
                     "description": "The version number of the current layer version"
                 }
             }
+        },
+        "eventmapping": {
+            "type": "ext",
+            "displayname": "CK Lambda Event Mapping",
+            "description": "Deploys an AWS Lambda EventSourceMapping. These mappings enable you to subscribe to an event source and trigger a Lambda function when that event is triggered",
+            "cloud": "AWS",
+            "download_folder": true,
+            "resources": ["AWS::lambda::eventsourcemapping"],
+            "policy": {
+                "Version": "2012-10-17",
+                "Statement": [{
+                    "Sid": "Vis",
+                    "Effect": "Allow",
+                    "Action": [
+                        "iam:PassRole",
+                        "lambda:GetFunction",
+                        "lambda:CreateEventSourceMapping",
+                        "lambda:DeleteEventSourceMapping",
+                        "lambda:ListEventSourceMappings",
+                        "lambda:GetEventSourceMapping",
+                        "lambda:UpdateEventSourceMapping",
+                        "lambda:TagResource",
+                        "lambda:UntagResource",
+                        "s3:GetObject"
+                    ],
+                    "Resource": "*"
+                }]
+            },
+            "input": {
+                "type": "object",
+                "properties": {
+                    "event_source_arn": {
+                        "type": "array",
+                        "description": "The ARN of the event source to subscribe to a lambda",
+                        "required": true
+                    },
+                    "function_arn": {
+                        "type": "string",
+                        "description": "The ARN of the Lambda function to invoke when the event is triggered",
+                        "required": true
+                    },
+                    "batch_size": {
+                        "type": "integer",
+                        "description": "The number of records to send in a single invocation",
+                        "default": 10,
+                        "minimum": 1,
+                        "maximum": 10000
+                    },
+                    "enabled": {
+                        "type": "boolean",
+                        "description": "Set to false if you want to temporarily disable this event mapping",
+                        "default": true
+                    }
+                }
+            },
+            "props": {
+                "uuid": {
+                    "type": "string",
+                    "description": "The UUID of the Event Source Mapping"
+                },
+                "function_arn": {
+                    "type": "string",
+                    "description": "The lambda function ARN for this mapping"
+                },
+                "event_source_arn": {
+                    "type": "string",
+                    "description": "The event source ARN used in this mapping"
+                }
+            }
         }
     },
     "repos": {
