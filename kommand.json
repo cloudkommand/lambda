@@ -110,6 +110,20 @@
                     "requirements.txt": {
                         "type": "boolean",
                         "description": "Set to true if a requirements.txt file should be extracted for installation. This should be placed directly underneath the top level folder"
+                    },
+                    "layers": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "description": "A list of component references to layer components that expose a version_arn prop. The layer versions associated with such ARNs will be attached to the function"
+                        }
+                    },
+                    "layer_version_arns": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "description": "A list of layer version ARNs to attach to the function"
+                        }
                     }
                 },
                 "oneOf": [

@@ -64,7 +64,7 @@ def lambda_handler(event, context):
         role_description = "Created by CK for the Lambda function of the same name"
         role_tags = tags if cdef.get("also_tag_role") else cdef.get("role_tags")
 
-        layer_arns = cdef.get("layer_arns") or []
+        layer_arns = cdef.get("layer_version_arns") or []
         layers = cdef.get("layers") or []
         if layers:
             try:
