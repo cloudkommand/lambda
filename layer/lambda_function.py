@@ -154,7 +154,7 @@ def lambda_handler(event, context):
                     f.writelines("%s\\n" % i for i in requirements)
             
             if os.path.exists(requirements_file):
-                dirs = os.listdir()
+                dirs = next(os.walk('.'))[1]
                 print(dirs)
                 #We are going to assume there is only one directory, as there should be
                 
