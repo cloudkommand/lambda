@@ -131,10 +131,11 @@ def get_event_mapping(prev_state, event_source_arn, function_name, configuration
                 if current_configuration.get(k) != v:
                     if k == "FunctionName" and (current_configuration.get("FunctionArn") == v):
                         continue
-                    else:
-                        eh.add_log("Mapping Configuration Changed", {"configuration": configuration, "current_configuration": current_configuration})
-                        eh.add_op("update_event_mapping")
-                        break
+                    elif k == "Enabled" and (((v == True) and (current_configuration.get("State") == "Enabled")) or ((v == False) and (current_configuration.get("State") == "Disabled"))):
+                        continue
+                    eh.add_log("Mapping Configuration Changed", {"configuration": configuration, "current_configuration": current_configuration})
+                    eh.add_op("update_event_mapping")
+                    break
             
             if not eh.ops["update_event_mapping"]:
                 eh.add_log("Mapping In Place. Exiting", {"configuration": configuration, "current_configuration": current_configuration})
@@ -166,7 +167,7 @@ def create_event_mapping(event_source_arn, function_name, configuration):
 
 @ext(handler=eh, op="update_event_mapping")
 def update_event_mapping(configuration):
-    uuid = eh.state["uuid"]
+    uuid = eh.props["uuid"]
 
     configuration = {k:v for k,v in configuration.items() if k not in [
         "EventSourceArn", "StartingPosition", "StartingPositionTimestamp"
