@@ -137,7 +137,7 @@ def get_event_mapping(prev_state, event_source_arn, function_name, configuration
                     eh.add_op("update_event_mapping")
                     break
             
-            if not eh.ops["update_event_mapping"]:
+            if not eh.ops.get("update_event_mapping"):
                 eh.add_log("Mapping In Place. Exiting", {"configuration": configuration, "current_configuration": current_configuration})
          
     except ClientError as e:
