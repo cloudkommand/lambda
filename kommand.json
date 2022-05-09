@@ -269,7 +269,6 @@
             "displayname": "CK Lambda Event Mapping",
             "description": "Deploys an AWS Lambda EventSourceMapping. These mappings enable you to subscribe to an event source and trigger a Lambda function when that event is triggered",
             "cloud": "AWS",
-            "download_folder": true,
             "resources": ["AWS::lambda::eventsourcemapping"],
             "policy": {
                 "Version": "2012-10-17",
