@@ -126,7 +126,7 @@
                         }
                     }
                 },
-                "oneOf": [
+                "anyOf": [
                     {
                         "required": [
                             "role"
@@ -243,7 +243,7 @@
                     },
                     "requirements_runtime": {
                         "type": "string",
-                        "description": "The runtime to build your requirements file inside",
+                        "description": "The runtime to build your requirements inside",
                         "enum": ["python3.6", "python3.7", "python3.8", "python3.9", "nodejs12.x", "nodejs14.x"],
                         "default": "python3.9"
                     }
