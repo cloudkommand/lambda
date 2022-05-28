@@ -100,7 +100,7 @@ def lambda_handler(event, context):
     except Exception as e:
         msg = traceback.format_exc()
         print(msg)
-        eh.add_log("Uncovered Error", {"error": msg}, is_error=True)
+        eh.add_log("Unexpected Error", {"error": msg}, is_error=True)
         eh.declare_return(200, 0, error_code=str(e))
         return eh.finish()
 
