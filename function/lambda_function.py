@@ -546,7 +546,8 @@ def gen_props(function_name, region):
             "layers": list(map(lambda x:x["Arn"], function.get("Layers", [])))
         })
         eh.add_links({
-            "Function": gen_lambda_link(function_name, region)
+            "Function": gen_lambda_link(function_name, region),
+            "Log Group": gen_logs_link(function_name, region)
         })
     except ClientError as e:
         handle_common_errors(e, eh, "Get Props Failed", 98)
@@ -588,6 +589,9 @@ def gen_lambda_arn(function_name, region, account_number):
 
 def gen_lambda_link(function_name, region):
     return f"https://console.aws.amazon.com/lambda/home?region={region}#/functions/{function_name}"
+
+def gen_logs_link(function_name, region):
+    return f"https://{region}.console.aws.amazon.com/cloudwatch/home?region={region}#logsV2:log-groups/log-group/$252Faws$252Flambda$252F{function_name}"
 
 @ext(handler=eh, op="remove_old")
 def remove_function():
