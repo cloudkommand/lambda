@@ -20,7 +20,11 @@ eh = ExtensionHandler()
 
 lambda_client = boto3.client("lambda")
 s3 = boto3.client("s3")
-def lambda_handler(event, context):
+def lambda_handler(event, context):\
+    #Three types of trust:
+    # 1. Zero
+    # 2. Code
+    # 3. Full
     try:
         print(f"event = {event}")
         # account_number = account_context(context)['number']
@@ -31,6 +35,8 @@ def lambda_handler(event, context):
         project_code = event.get("project_code")
         repo_id = event.get("repo_id")
         cname = event.get("component_name")
+
+        trust_level = cdef.get("trust_level") or "zero"
         layer_name = cdef.get("name") or component_safe_name(project_code, repo_id, cname)
         runtime = cdef.get("requirements_runtime") or "python3.9"
         # if requirements_runtime and requirements_runtime not in ALLOWED_RUNTIMES:
@@ -43,6 +49,12 @@ def lambda_handler(event, context):
         if pass_back_data:
             pass
         elif event.get("op") == "upsert":
+            if trust_level in ["full", "code"]:
+                eh.add_op("compare_defs")
+            # elif trust_level == "code":
+            #     eh.add_op("compare_etags")
+
+            eh.add_op("load_initial_props")
             if cdef.get("requirements"):
                 eh.add_op("add_requirements", cdef.get("requirements"))
                 eh.add_state({"requirements": cdef.get("requirements")})
@@ -61,6 +73,13 @@ def lambda_handler(event, context):
         elif event.get("op") == "delete":
             eh.add_op("remove_layer_versions", {"name": layer_name})
 
+        # eh.add_state({"object_name": object_name})
+        #Elevated Trust Functions (Full, Code)
+
+        compare_defs(event)
+        compare_etags(event, bucket, object_name)
+
+        load_initial_props(bucket, object_name)
         add_requirements()
         write_requirements_lambda_to_s3(bucket, runtime)
         deploy_requirements_lambda(bucket, runtime)
@@ -88,8 +107,45 @@ def get_s3_etag(bucket, object_name):
         print(f"s3_metadata = {s3_metadata}")
         eh.add_state({"zip_etag": s3_metadata['ETag']})
     except s3.exceptions.NoSuchKey:
-        eh.add_log("Cound Not Find Zip", {"bucket": bucket, "key": object_name})
+        eh.add_log("Cound Not Find Zipfile", {"bucket": bucket, "key": object_name})
         eh.retry_error("Object Not Found")
+
+@ext(handler=eh, op="compare_defs")
+def compare_defs(event):
+    old_rendef = event.get("prev_state").get("rendef")
+    new_rendef = event.get("component_def")
+    if old_rendef == new_rendef:
+        eh.add_op("compare_etags")
+
+    else:
+        eh.add_log("Definitions don't match, Deploying", {"old": old_rendef, "new": new_rendef})
+
+compare_defs
+@ext(handler=eh, op="compare_etags")
+def compare_etags(event, bucket, object_name):
+    old_props = event.get("prev_state", {}).get("props", {})
+
+    initial_etag = old_props.get("initial_etag")
+
+    #Get new etag
+    get_s3_etag(bucket, object_name)
+    if eh.state.get("zip_etag"):
+        new_etag = eh.state["zip_etag"]
+        if initial_etag == new_etag:
+            eh.add_log("Elevated Trust: No Change Detected", {"initial_etag": initial_etag, "new_etag": new_etag})
+            eh.add_props(old_props)
+            eh.add_links(event.get("prev_state", {}).get("links", {}))
+            eh.add_state(event.get("prev_state", {}).get("state", {}))
+            eh.declare_return(200, 100, success=True)
+
+        else:
+            eh.add_log("Code Changed, Deploying", {"old_etag": initial_etag, "new_etag": new_etag})
+
+@ext(handler=eh, op="load_initial_props")
+def load_initial_props(bucket, object_name):
+    get_s3_etag(bucket, object_name)
+    if eh.state.get("zip_etag"):
+        eh.add_props({"initial_etag": eh.state.get("zip_etag")})
 
 @ext(handler=eh, op="add_requirements")
 def add_requirements():
@@ -340,6 +396,7 @@ def check_if_update_required(prev_state, bucket, object_name):
                 eh.add_log("New Layer Version Required", {"etag": eh.state.get('zip_etag'), "code_etag": code_etag})
                 eh.add_op("publish_layer_version")
         else:
+            #Retry error already handled by get_s3_etag
             return None
 
 
