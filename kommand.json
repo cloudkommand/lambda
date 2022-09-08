@@ -221,6 +221,12 @@
             "input": {
                 "type": "object",
                 "properties": {
+                    "trust_level": {
+                        "type": "string",
+                        "description": "Set to full if you trust that what is in AWS has not changed, code if you still want to check the configuration of the pieces of code, and zero if you do not trust it at all",
+                        "enum": ["zero", "code", "full"],
+                        "default": "zero"
+                    },
                     "compatible_runtimes": {
                         "type": "array",
                         "description": "A list of the compatible runtimes of the layer",
@@ -261,6 +267,10 @@
                 "version": {
                     "type": "integer",
                     "description": "The version number of the current layer version"
+                },
+                "initial_etag": {
+                    "type": "string",
+                    "description": "A SHA of the code obtained from Github for this layer"
                 }
             }
         },
