@@ -120,7 +120,6 @@ def compare_defs(event):
     else:
         eh.add_log("Definitions don't match, Deploying", {"old": old_rendef, "new": new_rendef})
 
-compare_defs
 @ext(handler=eh, op="compare_etags")
 def compare_etags(event, bucket, object_name):
     old_props = event.get("prev_state", {}).get("props", {})
