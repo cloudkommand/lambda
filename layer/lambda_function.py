@@ -121,7 +121,7 @@ def compare_defs(event):
         eh.add_op("compare_etags")
 
     else:
-        eh.add_log("Definitions don't match, Deploying", {"old": old_rendef, "new": new_rendef})
+        eh.add_log("Definitions Don't Match, Deploying", {"old": old_rendef, "new": new_rendef})
 
 @ext(handler=eh, op="compare_etags")
 def compare_etags(event, bucket, object_name):
