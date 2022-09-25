@@ -209,7 +209,7 @@ def compare_etags(event, bucket, object_name):
 @ext(handler=eh, op="load_initial_props")
 def load_initial_props(bucket, object_name):
     get_s3_etag(bucket, object_name)
-    if eh.state.get("zip_etag"):
+    if eh.state.get("zip_etag"): #If not found, retry has already been declared
         eh.add_props({"initial_etag": eh.state.get("zip_etag")})
 
 @ext(handler=eh, op="upsert_role")

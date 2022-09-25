@@ -114,6 +114,9 @@ def get_s3_etag(bucket, object_name):
 def compare_defs(event):
     old_rendef = event.get("prev_state").get("rendef")
     new_rendef = event.get("component_def")
+    _ = old_rendef.pop("trust_level", None)
+    _ = new_rendef.pop("trust_level", None)
+
     if old_rendef == new_rendef:
         eh.add_op("compare_etags")
 
