@@ -8,6 +8,8 @@ import traceback
 import subprocess
 import zipfile
 import tempfile
+import base64
+import hashlib
 
 from extutil import remove_none_attributes, gen_log, creturn, handle_common_errors, \
     account_context, component_safe_name, ExtensionHandler, ext, lambda_env, \
@@ -45,6 +47,7 @@ def lambda_handler(event, context):
         timeout = cdef.get("timeout") or 5
         memory_size = cdef.get("memory_size") or 256
         environment = {"Variables": {k: str(v) for k,v in cdef.get("environment_variables").items()}} if cdef.get("environment_variables") else None
+        trust_level = cdef.get("trust_level") or "code"
 
         tags = cdef.get("tags") or {}
         role = cdef.get("role", {})
@@ -79,6 +82,10 @@ def lambda_handler(event, context):
         if pass_back_data:
             pass
         elif op == "upsert":
+            if trust_level == "full":
+                eh.add_op("compare_defs")
+
+            eh.add_op("load_initial_props")
             eh.add_op('upsert_role')
             eh.add_op("get_lambda")
             eh.add_op("gen_props")
@@ -91,6 +98,10 @@ def lambda_handler(event, context):
         elif op == "delete":
             eh.add_op('remove_role')
             eh.add_op("remove_old", {"name": function_name})
+
+        compare_defs(event)
+        compare_etags(event, bucket, object_name)
+        load_initial_props(bucket, object_name)
 
         upsert_role(prev_state, policies, policy_arns, role_description, role_tags)
 
@@ -108,13 +119,13 @@ def lambda_handler(event, context):
 
         function_arn = gen_lambda_arn(function_name, region, account_number)
 
-        get_function(prev_state, function_name, desired_config, tags)
         add_requirements(context)
         write_requirements_lambda_to_s3(bucket, runtime)
         deploy_requirements_lambda(bucket, runtime, context)
         invoke_requirements_lambda(bucket, object_name)
         check_requirements_built(bucket)
         remove_requirements_lambda(bucket, runtime, context)
+        get_function(prev_state, function_name, desired_config, tags, bucket, object_name, trust_level) #Moved here so that we can do object checks
         create_function(function_name, desired_config, bucket, object_name, tags)
         update_function_configuration(function_name, desired_config)
         update_function_code(function_name, bucket, object_name)
@@ -154,6 +165,57 @@ def manage_role(op, policies, policy_arns, role_description, role_tags):
 
     return proceed
 
+def get_s3_etag(bucket, object_name):
+    s3 = boto3.client("s3")
+
+    try:
+        s3_metadata = s3.head_object(Bucket=bucket, Key=object_name)
+        print(f"s3_metadata = {s3_metadata}")
+        eh.add_state({"zip_etag": s3_metadata['ETag']})
+    except s3.exceptions.NoSuchKey:
+        eh.add_log("Cound Not Find Zipfile", {"bucket": bucket, "key": object_name})
+        eh.retry_error("Object Not Found")
+
+@ext(handler=eh, op="compare_defs")
+def compare_defs(event):
+    old_rendef = event.get("prev_state").get("rendef")
+    new_rendef = event.get("component_def")
+
+    _ = old_rendef.pop("trust_level", None)
+    _ = new_rendef.pop("trust_level", None)
+    
+    if old_rendef == new_rendef:
+        eh.add_op("compare_etags")
+
+    else:
+        eh.add_log("Definitions Don't Match, Deploying", {"old": old_rendef, "new": new_rendef})
+
+@ext(handler=eh, op="compare_etags")
+def compare_etags(event, bucket, object_name):
+    old_props = event.get("prev_state", {}).get("props", {})
+
+    initial_etag = old_props.get("initial_etag")
+
+    #Get new etag
+    get_s3_etag(bucket, object_name)
+    if eh.state.get("zip_etag"):
+        new_etag = eh.state["zip_etag"]
+        if initial_etag == new_etag:
+            eh.add_log("Full Trust: No Change Detected", {"initial_etag": initial_etag, "new_etag": new_etag})
+            eh.add_props(old_props)
+            eh.add_links(event.get("prev_state", {}).get("links", {}))
+            eh.add_state(event.get("prev_state", {}).get("state", {}))
+            eh.declare_return(200, 100, success=True)
+
+        else:
+            eh.add_log("Code Changed, Deploying", {"old_etag": initial_etag, "new_etag": new_etag})
+
+@ext(handler=eh, op="load_initial_props")
+def load_initial_props(bucket, object_name):
+    get_s3_etag(bucket, object_name)
+    if eh.state.get("zip_etag"): #If not found, retry has already been declared
+        eh.add_props({"initial_etag": eh.state.get("zip_etag")})
+
 @ext(handler=eh, op="upsert_role")
 def upsert_role(prev_state, policies, policy_arns, role_description, role_tags):
     if eh.state.get("role_arn") and prev_state.get("props", {}).get("Role", {}).get("arn"):
@@ -173,7 +235,7 @@ def remove_role(policies, policy_arns, role_description, role_tags):
     
 
 @ext(handler=eh, op="get_lambda")
-def get_function(prev_state, function_name, desired_config, tags):
+def get_function(prev_state, function_name, desired_config, tags, bucket, object_name, trust_level):
     # lambda_client = boto3.client("lambda")
 
     if prev_state and prev_state.get("props", {}).get("name"):
@@ -187,14 +249,35 @@ def get_function(prev_state, function_name, desired_config, tags):
         function = lambda_client.get_function(
             FunctionName=function_name
         )
+        eh.add_log("Got Existing Lambda Function", function)
 
         current_config = function['Configuration']
         print(f'function config = {current_config}')
 
         function_arn = function.get("FunctionArn")
         eh.add_props({"arn": function_arn})
-        eh.add_op("update_function_code")
-        eh.add_log("Got Existing Lambda Function", function)
+        
+        if trust_level == "zero":
+            #We do the full pull from S3 check
+            #Check if we need to actually update the functions code
+            deployed_hash = current_config.get("CodeSha256")
+            function_bytes = s3.get_object(Bucket=bucket, Key=object_name)["Body"]
+            bytes_hash = str(base64.b64encode(hashlib.sha256(function_bytes.read()).digest()))[2:-1]
+            print(f"function_bytes_hash = {bytes_hash}")
+
+            if deployed_hash == bytes_hash:
+                eh.add_log("No Code Change Detected", {"deployed_hash": deployed_hash, "bytes_hash": bytes_hash})
+            else:
+                eh.add_op("update_function_code")
+        
+        elif eh.props["initial_etag"] == prev_state.get("props", {}).get("initial_etag"):
+            #We just check the stored SHA
+            eh.add_log("Elevated Trust; No Code Change", {"initial_etag": eh.props["initial_etag"]})
+            
+        else:
+            eh.add_op("update_function_code")
+            
+
         for k, v in desired_config.items():
             if k == "Layers":
                 continue
