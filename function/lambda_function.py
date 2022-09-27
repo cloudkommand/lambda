@@ -47,7 +47,7 @@ def lambda_handler(event, context):
         timeout = cdef.get("timeout") or 5
         memory_size = cdef.get("memory_size") or 256
         environment = {"Variables": {k: str(v) for k,v in cdef.get("environment_variables").items()}} if cdef.get("environment_variables") else None
-        trust_level = cdef.get("trust_level") or "zero"
+        trust_level = cdef.get("trust_level") or "code"
 
         tags = cdef.get("tags") or {}
         role = cdef.get("role", {})

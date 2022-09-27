@@ -36,7 +36,7 @@ def lambda_handler(event, context):\
         repo_id = event.get("repo_id")
         cname = event.get("component_name")
 
-        trust_level = cdef.get("trust_level") or "zero"
+        trust_level = cdef.get("trust_level") or "code"
         layer_name = cdef.get("name") or component_safe_name(project_code, repo_id, cname)
         runtime = cdef.get("requirements_runtime") or "python3.9"
         # if requirements_runtime and requirements_runtime not in ALLOWED_RUNTIMES:
