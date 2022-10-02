@@ -793,7 +793,6 @@ def get_default_buildspec_params(runtime):
         ]
         post_build_commands = [
             "echo 'Listing Files'",
-            "ls -l"
             "mkdir target",
             "cp -r * target"
         ]
