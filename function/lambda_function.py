@@ -132,7 +132,7 @@ def lambda_handler(event, context):
         remove_requirements_lambda(bucket, runtime, context)
 
         #All other runtimes that require building:
-        setup_codebuild_project(bucket, codebuild_project_override_def, runtime, op)
+        setup_codebuild_project(bucket, object_name, codebuild_project_override_def, runtime, op)
         run_codebuild_build(codebuild_build_override_def)
 
         #Then we can deploy the lambda
@@ -541,7 +541,7 @@ def remove_requirements_lambda(bucket, runtime, context):
         eh.perm_error(f"End ", progress=40)
 
 @ext(handler=eh, op="setup_codebuild_project")
-def setup_codebuild_project(bucket, codebuild_def, runtime, op):
+def setup_codebuild_project(bucket, object_name, codebuild_def, runtime, op):
     if not eh.state.get("codebuild_object_key"):
         eh.add_state({"codebuild_object_key": f"{random_id()}.zip"})
 
@@ -552,6 +552,8 @@ def setup_codebuild_project(bucket, codebuild_def, runtime, op):
     ]
 
     component_def = {
+        "s3_bucket": bucket,
+        "s3_object": object_name,
         "runtime_versions": runtime_version,
         "pre_build_commands": pre_build_commands,
         "build_commands": build_commands,
