@@ -99,6 +99,8 @@ def lambda_handler(event, context):
                 eh.add_op("add_requirements")
                 eh.add_state({"requirements": "$$file"})
         elif op == "delete":
+            if prev_state.get("props", {}).get("Codebuild Project"):
+                eh.add_op("setup_codebuild_project")
             eh.add_op('remove_role')
             eh.add_op("remove_old", {"name": function_name})
 
