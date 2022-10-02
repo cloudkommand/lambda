@@ -548,7 +548,7 @@ def setup_codebuild_project(bucket, codebuild_def, runtime, op):
     runtime_version = LAMBDA_RUNTIME_TO_CODEBUILD_RUNTIME[runtime]
     pre_build_commands, build_commands, post_build_commands, buildspec_artifacts = get_default_buildspec_params(runtime)
     container_image = CODEBUILD_RUNTIME_TO_IMAGE_MAPPING[
-        f"{runtime_version.keys()[0]}{runtime_version.values()[0]}"
+        f"{list(runtime_version.keys())[0]}{list(runtime_version.values())[0]}"
     ]
 
     component_def = {
