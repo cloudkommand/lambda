@@ -136,7 +136,7 @@ def lambda_handler(event, context):
         run_codebuild_build(codebuild_build_override_def)
 
         #Then we can deploy the lambda
-        get_function(prev_state, function_name, desired_config, tags, bucket, object_name, trust_level) #Moved here so that we can do object checks
+        get_function(prev_state, function_name, desired_config, tags, bucket, eh.state.get("new_object_name") or object_name, trust_level) #Moved here so that we can do object checks
         create_function(function_name, desired_config, bucket, eh.state.get("new_object_name") or object_name, tags)
         update_function_configuration(function_name, desired_config)
         update_function_code(function_name, bucket, eh.state.get("new_object_name") or object_name)
