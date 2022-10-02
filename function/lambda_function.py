@@ -784,18 +784,18 @@ def get_default_buildspec_params(runtime):
         "files": [
             "**/*"
         ],
-        "base-directory": "target"
+        # "base-directory": "target"
     }
     if runtime.startswith("node"):
         build_commands = [
             "echo 'Installing NPM Dependencies'",
             "npm install --production"
         ]
-        post_build_commands = [
-            "echo 'Listing Files'",
-            "mkdir target",
-            "cp -r * target"
-        ]
+        # post_build_commands = [
+        #     "echo 'Listing Files'",
+        #     "mkdir target",
+        #     "cp -r * target"
+        # ]
 
     return pre_build_commands, build_commands, post_build_commands, buildspec_artifacts
         
