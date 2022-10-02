@@ -791,6 +791,12 @@ def get_default_buildspec_params(runtime):
             "echo 'Installing NPM Dependencies'",
             "npm install --production"
         ]
+        post_build_commands = [
+            "echo 'Listing Files'",
+            "ls -l"
+            "mkdir target",
+            "cp -r * target"
+        ]
 
     return pre_build_commands, build_commands, post_build_commands, buildspec_artifacts
         
