@@ -193,7 +193,9 @@
             "download_folder": true,
             "resources": ["AWS::lambda::layer"],
             "environment_variables": {
-                "function_lambda_name": "@function:props.function_name"
+                "function_lambda_name": "@function:props.function_name",
+                "codebuild_project_lambda_name": "@codebuild.project:props.function_name",
+                "codebuild_build_lambda_name": "@codebuildactions.runbuild:props.function_name"
             },
             "policy": {
                 "Version": "2012-10-17",
