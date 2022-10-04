@@ -470,13 +470,15 @@ def check_if_update_required(prev_state, bucket, object_name):
 
 
 @ext(handler=eh, op="publish_layer_version")
-def publish_layer_version(layer_name, cdef, bucket, object_name, region):
+def publish_layer_version(layer_name, cdef, bucket, object_name, region, runtime):
     lambda_client = boto3.client("lambda")
     if not eh.state.get("zip_etag"):
         get_s3_etag(bucket, object_name)
     
     description = eh.state.get("zip_etag")
-    compatible_runtimes = cdef.get("compatible_runtimes") or ["python3.9", "python3.8", "python3.6", "python3.7"]    
+    compatible_runtimes = cdef.get("compatible_runtimes") or [
+        "python3.9", "python3.8", "python3.6", "python3.7"
+    ] if runtime.startswith("python") else [runtime]
     if not isinstance(compatible_runtimes, list):
         eh.perm_error("compatible_runtimes must be a list of strings")
     
