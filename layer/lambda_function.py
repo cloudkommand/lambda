@@ -42,6 +42,9 @@ def lambda_handler(event, context):\
         # if requirements_runtime and requirements_runtime not in ALLOWED_RUNTIMES:
         #     eh.perm_error("requirements_runtime invalid", {"runtime": requirements_runtime, "allowed": ALLOWED_RUNTIMES})
         
+        codebuild_project_override_def = cdef.get("Codebuild Project") or {} #For codebuild project overrides
+        codebuild_build_override_def = cdef.get("Codebuild Build") or {} #For codebuild build overrides
+
         bucket = event.get("bucket")
         object_name = event.get("s3_object_name")
 
@@ -71,6 +74,8 @@ def lambda_handler(event, context):\
                 eh.add_op("publish_layer_version")
 
         elif event.get("op") == "delete":
+            if prev_state.get("props", {}).get("Codebuild Project"):
+                eh.add_op("setup_codebuild_project")
             eh.add_op("remove_layer_versions", {"name": layer_name})
 
         # eh.add_state({"object_name": object_name})
@@ -80,14 +85,21 @@ def lambda_handler(event, context):\
         compare_etags(event, bucket, object_name)
 
         load_initial_props(bucket, object_name)
-        add_requirements()
+        add_requirements(context, runtime)
+
+        #Python hack that reduces time to build by 2-3 fold.
         write_requirements_lambda_to_s3(bucket, runtime)
         deploy_requirements_lambda(bucket, runtime)
         invoke_requirements_lambda(bucket, object_name)
         check_requirements_built(bucket)
         remove_requirements_lambda(bucket, runtime)
-        check_if_update_required(prev_state, bucket, object_name)
-        publish_layer_version(layer_name, cdef, bucket, object_name, region)
+
+        #All other runtimes that require building:
+        setup_codebuild_project(bucket, object_name, codebuild_project_override_def, runtime, event["op"])
+        run_codebuild_build(codebuild_build_override_def)
+
+        check_if_update_required(prev_state, bucket, eh.state.get("new_object_name") or object_name)
+        publish_layer_version(layer_name, cdef, bucket, eh.state.get("new_object_name") or object_name, region, runtime)
         remove_layer_versions(event.get("op"))
 
         return eh.finish()
@@ -150,17 +162,20 @@ def load_initial_props(bucket, object_name):
         eh.add_props({"initial_etag": eh.state.get("zip_etag")})
 
 @ext(handler=eh, op="add_requirements")
-def add_requirements():
-    try:
-        response = lambda_client.get_function(
-            FunctionName=lambda_env("function_lambda_name")
-        )
-        role_arn = response["Configuration"]["Role"]
-        eh.add_state({"this_role_arn": role_arn})
-        eh.add_op("write_requirements_lambda_to_s3")
+def add_requirements(context, runtime):
+    if runtime.startswith("python"):
+        try:
+            response = lambda_client.get_function(
+                FunctionName=context.function_name
+            )
+            role_arn = response["Configuration"]["Role"]
+            eh.add_state({"this_role_arn": role_arn})
+            eh.add_op("write_requirements_lambda_to_s3")
         
-    except ClientError as e:
-        handle_common_errors(e, eh, "Get Requirements Role Failed: ", 25)
+        except ClientError as e:
+            handle_common_errors(e, eh, "Get Requirements Role Failed", 25)
+    else:
+        eh.add_op("setup_codebuild_project")
 
 @ext(handler=eh, op="write_requirements_lambda_to_s3")
 def write_requirements_lambda_to_s3(bucket, runtime):
@@ -362,6 +377,70 @@ def remove_requirements_lambda(bucket, runtime):
         eh.perm_error(f"End ", progress=40)
 
 
+@ext(handler=eh, op="setup_codebuild_project")
+def setup_codebuild_project(bucket, object_name, codebuild_def, runtime, op):
+    if not eh.state.get("codebuild_object_key"):
+        eh.add_state({"codebuild_object_key": f"{random_id()}.zip"})
+
+    runtime_version = LAMBDA_RUNTIME_TO_CODEBUILD_RUNTIME[runtime]
+    pre_build_commands, build_commands, post_build_commands, buildspec_artifacts = get_default_buildspec_params(runtime)
+    container_image = CODEBUILD_RUNTIME_TO_IMAGE_MAPPING[
+        f"{list(runtime_version.keys())[0]}{list(runtime_version.values())[0]}"
+    ]
+
+    component_def = {
+        "s3_bucket": bucket,
+        "s3_object": object_name,
+        "runtime_versions": runtime_version,
+        "pre_build_commands": pre_build_commands,
+        "build_commands": build_commands,
+        "post_build_commands": post_build_commands,
+        "buildspec_artifacts": buildspec_artifacts,
+        "artifacts": {
+            "type": "S3",
+            "location": bucket,
+            "path": "codebuildlambdas", 
+            "name": eh.state["codebuild_object_key"],
+            "packaging": "ZIP",
+            "encryptionDisabled": True
+        },
+        "container_image": container_image
+    }
+
+    #Allows for custom overrides as the user sees fit
+    component_def.update(codebuild_def)
+
+    eh.invoke_extension(
+        arn=lambda_env("codebuild_project_lambda_name"), 
+        component_def=component_def, 
+        child_key="Codebuild Project", progress_start=25, 
+        progress_end=30
+    )
+
+    eh.add_state({"new_object_name": f"codebuildlambdas/{eh.state['codebuild_object_key']}"})
+
+    if op == "upsert":
+        eh.add_op("run_codebuild_build")
+
+@ext(handler=eh, op="run_codebuild_build")
+def run_codebuild_build(codebuild_build_def):
+    print(eh.props)
+    print(eh.links)
+
+    component_def = {
+        "project_name": eh.props["Codebuild Project"]["name"]
+    }
+
+    component_def.update(codebuild_build_def)
+
+    eh.invoke_extension(
+        arn=lambda_env("codebuild_build_lambda_name"),
+        component_def=component_def, 
+        child_key="Codebuild Build", progress_start=30, 
+        progress_end=45
+    )
+
+
 @ext(handler=eh, op="check_if_update_required")
 def check_if_update_required(prev_state, bucket, object_name):
     lambda_client = boto3.client("lambda")
@@ -403,13 +482,15 @@ def check_if_update_required(prev_state, bucket, object_name):
 
 
 @ext(handler=eh, op="publish_layer_version")
-def publish_layer_version(layer_name, cdef, bucket, object_name, region):
+def publish_layer_version(layer_name, cdef, bucket, object_name, region, runtime):
     lambda_client = boto3.client("lambda")
     if not eh.state.get("zip_etag"):
         get_s3_etag(bucket, object_name)
     
     description = eh.state.get("zip_etag")
-    compatible_runtimes = cdef.get("compatible_runtimes") or ["python3.9", "python3.8", "python3.6", "python3.7"]    
+    compatible_runtimes = cdef.get("compatible_runtimes") or [
+        "python3.9", "python3.8", "python3.6", "python3.7"
+    ] if runtime.startswith("python") else [runtime]
     if not isinstance(compatible_runtimes, list):
         eh.perm_error("compatible_runtimes must be a list of strings")
     
@@ -491,3 +572,77 @@ def remove_layer_versions(op):
 
 def gen_layer_link(layer_name, region):
     return f"https://console.aws.amazon.com/lambda/home?region={region}#/layers/{layer_name}"
+
+def get_default_buildspec_params(runtime):
+    pre_build_commands = []
+    build_commands = []
+    post_build_commands = []
+    buildspec_artifacts = {
+        "files": [
+            "**/*"
+        ],
+        # "base-directory": "target"
+    }
+    if runtime.startswith("node"):
+        pre_build_commands = [
+            "rm -rf node_modules",
+        ]
+        build_commands = [
+            "echo 'Installing NPM Dependencies'",
+            "npm install --production"
+        ]
+        post_build_commands = [
+            "mkdir -p nodejs",
+            "mv node_modules nodejs/"
+        ]
+
+    return pre_build_commands, build_commands, post_build_commands, buildspec_artifacts
+   
+
+LAMBDA_RUNTIME_TO_CODEBUILD_RUNTIME = {
+    "nodejs16.x": {"nodejs": 16},
+    "nodejs14.x": {"nodejs": 14},
+    "nodejs12.x": {"nodejs": 12},
+    "java11": {"javacorretto": 11},
+    "java8.al2": {"javacorretto": 8},
+    "java8": {"javacorretto": 8},
+    "dotnetcore3.1": {"dotnet": 3.1},
+    "dotnet6": {"dotnet": 6},
+    "dotnet5.0": {"dotnet": 5},
+    "go1.x": {"golang": 1.16},
+    "ruby2.7": {"ruby": 2.7},
+}
+
+
+CODEBUILD_RUNTIME_TO_IMAGE_MAPPING = {
+    "android28": "aws/codebuild/amazonlinux2-x86_64-standard:3.0",
+    "android29": "aws/codebuild/amazonlinux2-x86_64-standard:3.0",
+    "dotnet3.1": "aws/codebuild/amazonlinux2-x86_64-standard:3.0",
+    "dotnet5.0": "aws/codebuild/standard:5.0",
+    "dotnet6.0": "aws/codebuild/standard:6.0",
+    "golang1.12": "aws/codebuild/amazonlinux2-x86_64-standard:3.0",
+    "golang1.13": "aws/codebuild/amazonlinux2-x86_64-standard:3.0",
+    "golang1.14": "aws/codebuild/amazonlinux2-x86_64-standard:3.0",
+    "golang1.15": "aws/codebuild/standard:5.0",
+    "golang1.16": "aws/codebuild/standard:5.0",
+    "golang1.18": "aws/codebuild/amazonlinux2-x86_64-standard:4.0",
+    "javacorretto8": "aws/codebuild/amazonlinux2-x86_64-standard:3.0",
+    "javacorretto11": "aws/codebuild/amazonlinux2-x86_64-standard:3.0",
+    "javacorretto17": "aws/codebuild/amazonlinux2-x86_64-standard:4.0",
+    "nodejs8": "aws/codebuild/amazonlinux2-aarch64-standard:1.0",
+    "nodejs10": "aws/codebuild/amazonlinux2-x86_64-standard:3.0",
+    "nodejs12": "aws/codebuild/amazonlinux2-x86_64-standard:3.0",
+    "nodejs14": "aws/codebuild/standard:5.0",
+    "nodejs16": "aws/codebuild/amazonlinux2-x86_64-standard:4.0",
+    "php7.3": "aws/codebuild/amazonlinux2-x86_64-standard:3.0",
+    "php7.4": "aws/codebuild/amazonlinux2-x86_64-standard:3.0",
+    "php8.0": "aws/codebuild/standard:5.0",
+    "php8.1": "aws/codebuild/amazonlinux2-x86_64-standard:4.0",
+    "python3.7": "aws/codebuild/amazonlinux2-x86_64-standard:3.0",
+    "python3.8": "aws/codebuild/amazonlinux2-x86_64-standard:3.0",
+    "python3.9": "aws/codebuild/amazonlinux2-x86_64-standard:3.0",
+    "python3.10": "aws/codebuild/standard:6.0",
+    "ruby2.6": "aws/codebuild/amazonlinux2-x86_64-standard:3.0",
+    "ruby2.7": "aws/codebuild/amazonlinux2-x86_64-standard:3.0",
+    "ruby3.1": "aws/codebuild/amazonlinux2-x86_64-standard:4.0",
+}

@@ -67,6 +67,9 @@ def lambda_handler(event, context):
         role_description = "Created by CK for the Lambda function of the same name"
         role_tags = tags if cdef.get("also_tag_role") else cdef.get("role_tags")
 
+        codebuild_project_override_def = cdef.get("Codebuild Project") or {} #For codebuild project overrides
+        codebuild_build_override_def = cdef.get("Codebuild Build") or {} #For codebuild build overrides
+
         layer_arns = cdef.get("layer_version_arns") or []
         layers = cdef.get("layers") or []
         if layers:
@@ -96,6 +99,8 @@ def lambda_handler(event, context):
                 eh.add_op("add_requirements")
                 eh.add_state({"requirements": "$$file"})
         elif op == "delete":
+            if prev_state.get("props", {}).get("Codebuild Project"):
+                eh.add_op("setup_codebuild_project")
             eh.add_op('remove_role')
             eh.add_op("remove_old", {"name": function_name})
 
@@ -119,16 +124,24 @@ def lambda_handler(event, context):
 
         function_arn = gen_lambda_arn(function_name, region, account_number)
 
-        add_requirements(context)
+        add_requirements(context, runtime)
+
+        #Python hack that reduces time to build by 2-3 fold.
         write_requirements_lambda_to_s3(bucket, runtime)
         deploy_requirements_lambda(bucket, runtime, context)
         invoke_requirements_lambda(bucket, object_name)
         check_requirements_built(bucket)
         remove_requirements_lambda(bucket, runtime, context)
-        get_function(prev_state, function_name, desired_config, tags, bucket, object_name, trust_level) #Moved here so that we can do object checks
-        create_function(function_name, desired_config, bucket, object_name, tags)
+
+        #All other runtimes that require building:
+        setup_codebuild_project(bucket, object_name, codebuild_project_override_def, runtime, op)
+        run_codebuild_build(codebuild_build_override_def)
+
+        #Then we can deploy the lambda
+        get_function(prev_state, function_name, desired_config, tags, bucket, eh.state.get("new_object_name") or object_name, trust_level) #Moved here so that we can do object checks
+        create_function(function_name, desired_config, bucket, eh.state.get("new_object_name") or object_name, tags)
         update_function_configuration(function_name, desired_config)
-        update_function_code(function_name, bucket, object_name)
+        update_function_code(function_name, bucket, eh.state.get("new_object_name") or object_name)
         remove_tags(function_arn)
         add_tags(function_arn)
         remove_function()
@@ -315,17 +328,20 @@ def get_function(prev_state, function_name, desired_config, tags, bucket, object
     
 
 @ext(handler=eh, op="add_requirements")
-def add_requirements(context):
-    try:
-        response = lambda_client.get_function(
-            FunctionName=context.function_name
-        )
-        role_arn = response["Configuration"]["Role"]
-        eh.add_state({"this_role_arn": role_arn})
-        eh.add_op("write_requirements_lambda_to_s3")
+def add_requirements(context, runtime):
+    if runtime.startswith("python"):
+        try:
+            response = lambda_client.get_function(
+                FunctionName=context.function_name
+            )
+            role_arn = response["Configuration"]["Role"]
+            eh.add_state({"this_role_arn": role_arn})
+            eh.add_op("write_requirements_lambda_to_s3")
         
-    except ClientError as e:
-        handle_common_errors(e, eh, "Get Requirements Role Failed", 25)
+        except ClientError as e:
+            handle_common_errors(e, eh, "Get Requirements Role Failed", 25)
+    else:
+        eh.add_op("setup_codebuild_project")
 
 @ext(handler=eh, op="write_requirements_lambda_to_s3")
 def write_requirements_lambda_to_s3(bucket, runtime):
@@ -526,6 +542,71 @@ def remove_requirements_lambda(bucket, runtime, context):
     if eh.state.get("requirements_failed"):
         eh.perm_error(f"End ", progress=40)
 
+@ext(handler=eh, op="setup_codebuild_project")
+def setup_codebuild_project(bucket, object_name, codebuild_def, runtime, op):
+    if not eh.state.get("codebuild_object_key"):
+        eh.add_state({"codebuild_object_key": f"{random_id()}.zip"})
+
+    runtime_version = LAMBDA_RUNTIME_TO_CODEBUILD_RUNTIME[runtime]
+    pre_build_commands, build_commands, post_build_commands, buildspec_artifacts = get_default_buildspec_params(runtime)
+    container_image = CODEBUILD_RUNTIME_TO_IMAGE_MAPPING[
+        f"{list(runtime_version.keys())[0]}{list(runtime_version.values())[0]}"
+    ]
+
+    component_def = {
+        "s3_bucket": bucket,
+        "s3_object": object_name,
+        "runtime_versions": runtime_version,
+        "pre_build_commands": pre_build_commands,
+        "build_commands": build_commands,
+        "post_build_commands": post_build_commands,
+        "buildspec_artifacts": buildspec_artifacts,
+        "artifacts": {
+            "type": "S3",
+            "location": bucket,
+            "path": "codebuildlambdas", 
+            "name": eh.state["codebuild_object_key"],
+            "packaging": "ZIP",
+            "encryptionDisabled": True
+        },
+        "container_image": container_image
+    }
+
+    #Allows for custom overrides as the user sees fit
+    component_def.update(codebuild_def)
+
+    eh.invoke_extension(
+        arn=lambda_env("codebuild_project_lambda_name"), 
+        component_def=component_def, 
+        child_key="Codebuild Project", progress_start=25, 
+        progress_end=30
+    )
+
+    eh.add_state({"new_object_name": f"codebuildlambdas/{eh.state['codebuild_object_key']}"})
+
+    if op == "upsert":
+        eh.add_op("run_codebuild_build")
+
+@ext(handler=eh, op="run_codebuild_build")
+def run_codebuild_build(codebuild_build_def):
+    print(eh.props)
+    print(eh.links)
+
+    component_def = {
+        "project_name": eh.props["Codebuild Project"]["name"]
+    }
+
+    component_def.update(codebuild_build_def)
+
+    eh.invoke_extension(
+        arn=lambda_env("codebuild_build_lambda_name"),
+        component_def=component_def, 
+        child_key="Codebuild Build", progress_start=30, 
+        progress_end=45
+    )
+
+
+
 @ext(handler=eh, op="create_function")
 def create_function(function_name, desired_config, bucket, object_name, tags):
     # lambda_client = boto3.client("lambda")
@@ -696,6 +777,81 @@ def remove_function():
         else:
             eh.retry_error(str(e), 90 if create_and_delete else 15)
             eh.add_log(f"Error Deleting Function", {"name": function_to_delete}, True)
+
+def get_default_buildspec_params(runtime):
+    pre_build_commands = []
+    build_commands = []
+    post_build_commands = []
+    buildspec_artifacts = {
+        "files": [
+            "**/*"
+        ],
+        # "base-directory": "target"
+    }
+    if runtime.startswith("node"):
+        build_commands = [
+            "echo 'Installing NPM Dependencies'",
+            "npm install --production"
+        ]
+        # post_build_commands = [
+        #     "echo 'Listing Files'",
+        #     "mkdir target",
+        #     "cp -r * target"
+        # ]
+
+    return pre_build_commands, build_commands, post_build_commands, buildspec_artifacts
+        
+
+LAMBDA_RUNTIME_TO_CODEBUILD_RUNTIME = {
+    "nodejs16.x": {"nodejs": 16},
+    "nodejs14.x": {"nodejs": 14},
+    "nodejs12.x": {"nodejs": 12},
+    "java11": {"javacorretto": 11},
+    "java8.al2": {"javacorretto": 8},
+    "java8": {"javacorretto": 8},
+    "dotnetcore3.1": {"dotnet": 3.1},
+    "dotnet6": {"dotnet": 6},
+    "dotnet5.0": {"dotnet": 5},
+    "go1.x": {"golang": 1.16},
+    "ruby2.7": {"ruby": 2.7},
+}
+
+
+CODEBUILD_RUNTIME_TO_IMAGE_MAPPING = {
+    "android28": "aws/codebuild/amazonlinux2-x86_64-standard:3.0",
+    "android29": "aws/codebuild/amazonlinux2-x86_64-standard:3.0",
+    "dotnet3.1": "aws/codebuild/amazonlinux2-x86_64-standard:3.0",
+    "dotnet5.0": "aws/codebuild/standard:5.0",
+    "dotnet6.0": "aws/codebuild/standard:6.0",
+    "golang1.12": "aws/codebuild/amazonlinux2-x86_64-standard:3.0",
+    "golang1.13": "aws/codebuild/amazonlinux2-x86_64-standard:3.0",
+    "golang1.14": "aws/codebuild/amazonlinux2-x86_64-standard:3.0",
+    "golang1.15": "aws/codebuild/standard:5.0",
+    "golang1.16": "aws/codebuild/standard:5.0",
+    "golang1.18": "aws/codebuild/amazonlinux2-x86_64-standard:4.0",
+    "javacorretto8": "aws/codebuild/amazonlinux2-x86_64-standard:3.0",
+    "javacorretto11": "aws/codebuild/amazonlinux2-x86_64-standard:3.0",
+    "javacorretto17": "aws/codebuild/amazonlinux2-x86_64-standard:4.0",
+    "nodejs8": "aws/codebuild/amazonlinux2-aarch64-standard:1.0",
+    "nodejs10": "aws/codebuild/amazonlinux2-x86_64-standard:3.0",
+    "nodejs12": "aws/codebuild/amazonlinux2-x86_64-standard:3.0",
+    "nodejs14": "aws/codebuild/standard:5.0",
+    "nodejs16": "aws/codebuild/amazonlinux2-x86_64-standard:4.0",
+    "php7.3": "aws/codebuild/amazonlinux2-x86_64-standard:3.0",
+    "php7.4": "aws/codebuild/amazonlinux2-x86_64-standard:3.0",
+    "php8.0": "aws/codebuild/standard:5.0",
+    "php8.1": "aws/codebuild/amazonlinux2-x86_64-standard:4.0",
+    "python3.7": "aws/codebuild/amazonlinux2-x86_64-standard:3.0",
+    "python3.8": "aws/codebuild/amazonlinux2-x86_64-standard:3.0",
+    "python3.9": "aws/codebuild/amazonlinux2-x86_64-standard:3.0",
+    "python3.10": "aws/codebuild/standard:6.0",
+    "ruby2.6": "aws/codebuild/amazonlinux2-x86_64-standard:3.0",
+    "ruby2.7": "aws/codebuild/amazonlinux2-x86_64-standard:3.0",
+    "ruby3.1": "aws/codebuild/amazonlinux2-x86_64-standard:4.0",
+}
+
+
+
 
 
 # except ClientError as e:
