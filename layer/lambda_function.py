@@ -80,7 +80,7 @@ def lambda_handler(event, context):\
         compare_etags(event, bucket, object_name)
 
         load_initial_props(bucket, object_name)
-        add_requirements()
+        add_requirements(context, runtime)
         write_requirements_lambda_to_s3(bucket, runtime)
         deploy_requirements_lambda(bucket, runtime)
         invoke_requirements_lambda(bucket, object_name)
@@ -164,7 +164,7 @@ def add_requirements(context, runtime):
             handle_common_errors(e, eh, "Get Requirements Role Failed", 25)
     else:
         eh.add_op("setup_codebuild_project")
-        
+
 @ext(handler=eh, op="write_requirements_lambda_to_s3")
 def write_requirements_lambda_to_s3(bucket, runtime):
 
