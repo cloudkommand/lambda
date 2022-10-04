@@ -87,7 +87,7 @@ def lambda_handler(event, context):\
         check_requirements_built(bucket)
         remove_requirements_lambda(bucket, runtime)
         check_if_update_required(prev_state, bucket, eh.state.get("new_object_name") or object_name)
-        publish_layer_version(layer_name, cdef, bucket, eh.state.get("new_object_name") or object_name, region)
+        publish_layer_version(layer_name, cdef, bucket, eh.state.get("new_object_name") or object_name, region, runtime)
         remove_layer_versions(event.get("op"))
 
         return eh.finish()
