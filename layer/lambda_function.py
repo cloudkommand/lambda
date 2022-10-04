@@ -150,18 +150,21 @@ def load_initial_props(bucket, object_name):
         eh.add_props({"initial_etag": eh.state.get("zip_etag")})
 
 @ext(handler=eh, op="add_requirements")
-def add_requirements():
-    try:
-        response = lambda_client.get_function(
-            FunctionName=lambda_env("function_lambda_name")
-        )
-        role_arn = response["Configuration"]["Role"]
-        eh.add_state({"this_role_arn": role_arn})
-        eh.add_op("write_requirements_lambda_to_s3")
+def add_requirements(context, runtime):
+    if runtime.startswith("python"):
+        try:
+            response = lambda_client.get_function(
+                FunctionName=context.function_name
+            )
+            role_arn = response["Configuration"]["Role"]
+            eh.add_state({"this_role_arn": role_arn})
+            eh.add_op("write_requirements_lambda_to_s3")
         
-    except ClientError as e:
-        handle_common_errors(e, eh, "Get Requirements Role Failed: ", 25)
-
+        except ClientError as e:
+            handle_common_errors(e, eh, "Get Requirements Role Failed", 25)
+    else:
+        eh.add_op("setup_codebuild_project")
+        
 @ext(handler=eh, op="write_requirements_lambda_to_s3")
 def write_requirements_lambda_to_s3(bucket, runtime):
 
