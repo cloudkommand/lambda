@@ -42,6 +42,9 @@ def lambda_handler(event, context):\
         # if requirements_runtime and requirements_runtime not in ALLOWED_RUNTIMES:
         #     eh.perm_error("requirements_runtime invalid", {"runtime": requirements_runtime, "allowed": ALLOWED_RUNTIMES})
         
+        codebuild_project_override_def = cdef.get("Codebuild Project") or {} #For codebuild project overrides
+        codebuild_build_override_def = cdef.get("Codebuild Build") or {} #For codebuild build overrides
+
         bucket = event.get("bucket")
         object_name = event.get("s3_object_name")
 
@@ -81,11 +84,18 @@ def lambda_handler(event, context):\
 
         load_initial_props(bucket, object_name)
         add_requirements(context, runtime)
+
+        #Python hack that reduces time to build by 2-3 fold.
         write_requirements_lambda_to_s3(bucket, runtime)
         deploy_requirements_lambda(bucket, runtime)
         invoke_requirements_lambda(bucket, object_name)
         check_requirements_built(bucket)
         remove_requirements_lambda(bucket, runtime)
+
+        #All other runtimes that require building:
+        setup_codebuild_project(bucket, object_name, codebuild_project_override_def, runtime, op)
+        run_codebuild_build(codebuild_build_override_def)
+
         check_if_update_required(prev_state, bucket, eh.state.get("new_object_name") or object_name)
         publish_layer_version(layer_name, cdef, bucket, eh.state.get("new_object_name") or object_name, region, runtime)
         remove_layer_versions(event.get("op"))
