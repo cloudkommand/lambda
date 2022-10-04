@@ -74,6 +74,8 @@ def lambda_handler(event, context):\
                 eh.add_op("publish_layer_version")
 
         elif event.get("op") == "delete":
+            if prev_state.get("props", {}).get("Codebuild Project"):
+                eh.add_op("setup_codebuild_project")
             eh.add_op("remove_layer_versions", {"name": layer_name})
 
         # eh.add_state({"object_name": object_name})
