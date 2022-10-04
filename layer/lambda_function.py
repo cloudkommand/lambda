@@ -93,7 +93,7 @@ def lambda_handler(event, context):\
         remove_requirements_lambda(bucket, runtime)
 
         #All other runtimes that require building:
-        setup_codebuild_project(bucket, object_name, codebuild_project_override_def, runtime, op)
+        setup_codebuild_project(bucket, object_name, codebuild_project_override_def, runtime, event["op"])
         run_codebuild_build(codebuild_build_override_def)
 
         check_if_update_required(prev_state, bucket, eh.state.get("new_object_name") or object_name)
