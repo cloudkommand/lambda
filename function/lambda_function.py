@@ -312,6 +312,7 @@ def get_function(prev_state, function_name, desired_config, tags, bucket, object
         #If we need to publish a version, the new configuration will not be applied
         #unless we call update_function_code
         if not eh.ops.get("update_function_configuration") and (not publish_version or prev_state.get("props", {}).get("version") != "$LATEST"):
+            eh.add_props({"version": prev_state.get("props", {}).get("version") or current_config["Version"]})
             if trust_level == "zero":
                 #We do the full pull from S3 check
                 #Check if we need to actually update the functions code
@@ -896,7 +897,7 @@ def wait_for_provisioned_concurrency(function_name, alias_name):
         )
         if provisioned_concurrency_response.get("Status") == "IN_PROGRESS":
             eh.add_log("Provisioned Concurrency Still Updating", provisioned_concurrency_response)
-            eh.retry_error("Updating Provisioned Concurrency", 90)
+            eh.retry_error(random_id(), 90, callback_sec=8)
         elif provisioned_concurrency_response.get("Status") == "FAILED":
             eh.add_log("Provisioned Concurrency Update Failed", provisioned_concurrency_response, is_error=True)
             eh.perm_error("Provisioned Concurrency Update Failed", 90)
