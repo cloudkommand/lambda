@@ -854,6 +854,7 @@ def get_function_provisioned_concurrency(function_name, alias_name, provisioned_
     
     except ClientError as e:
         if e.response['Error']['Code'] == 'ProvisionedConcurrencyConfigNotFoundException':
+            eh.add_log("Got Provisioned Concurrency Settings", {"none": True})
             if provisioned_concurrency:
                 eh.add_op("put_function_provisioned_concurrency")
         else:
