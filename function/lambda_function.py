@@ -49,6 +49,12 @@ def lambda_handler(event, context):
         environment = {"Variables": {k: str(v) for k,v in cdef.get("environment_variables").items()}} if cdef.get("environment_variables") else None
         trust_level = cdef.get("trust_level") or "code"
 
+        xray = cdef.get("xray") or False
+        tracing_config = cdef.get("tracing_config") or ({"Mode": "Active"} if xray else {"Mode": "PassThrough"})
+        reserved_concurrency = cdef.get("reserved_concurrency")
+        provisioned_concurrency = cdef.get("provisioned_concurrency")
+        publish_version = bool(provisioned_concurrency) or cdef.get("publish_version") or False
+
         tags = cdef.get("tags") or {}
         role = cdef.get("role", {})
         # if role and (not "lambda" in role.get("role_services", [])) and (not "lambda.amazonaws.com" in role.get("role_services", [])):
@@ -80,6 +86,7 @@ def lambda_handler(event, context):
                 eh.perm_error("Invalid layer parameters", 0)
 
         function_name = cdef.get("name") or component_safe_name(project_code, repo_id, cname)
+        alias_name = prev_state.get("props", {}).get("Alias", {}).get("name") or function_name
         pass_back_data = event.get("pass_back_data", {})
 
         if pass_back_data:
@@ -92,6 +99,9 @@ def lambda_handler(event, context):
             eh.add_op('upsert_role')
             eh.add_op("get_lambda")
             eh.add_op("gen_props")
+            eh.add_op("get_alias")
+            eh.add_op("get_function_reserved_concurrency")
+            eh.add_op("get_function_provisioned_concurrency")
             if cdef.get("requirements"):
                 eh.add_op("add_requirements")
                 eh.add_state({"requirements": cdef.get("requirements")})
@@ -103,6 +113,7 @@ def lambda_handler(event, context):
                 eh.add_op("setup_codebuild_project")
             eh.add_op('remove_role')
             eh.add_op("remove_old", {"name": function_name})
+            eh.add_op("remove_alias")
 
         compare_defs(event)
         compare_etags(event, bucket, object_name)
@@ -119,6 +130,7 @@ def lambda_handler(event, context):
             "MemorySize": memory_size,
             "Environment": environment,
             "Runtime": runtime,
+            "TracingConfig": tracing_config,
             "Layers": layer_arns or None
         })
 
@@ -138,10 +150,21 @@ def lambda_handler(event, context):
         run_codebuild_build(codebuild_build_override_def)
 
         #Then we can deploy the lambda
-        get_function(prev_state, function_name, desired_config, tags, bucket, eh.state.get("new_object_name") or object_name, trust_level) #Moved here so that we can do object checks
-        create_function(function_name, desired_config, bucket, eh.state.get("new_object_name") or object_name, tags)
+        get_function(prev_state, function_name, desired_config, tags, bucket, eh.state.get("new_object_name") or object_name, trust_level, publish_version) #Moved here so that we can do object checks
+        create_function(function_name, desired_config, bucket, eh.state.get("new_object_name") or object_name, tags, publish_version)
         update_function_configuration(function_name, desired_config)
-        update_function_code(function_name, bucket, eh.state.get("new_object_name") or object_name)
+        update_function_code(function_name, bucket, eh.state.get("new_object_name") or object_name, publish_version)
+        get_alias(function_name, alias_name)
+        create_alias(function_name, alias_name)
+        update_alias(function_name, alias_name)
+        remove_alias(function_name, alias_name)
+        get_function_reserved_concurrency(function_name, reserved_concurrency)
+        put_function_reserved_concurrency(function_name, reserved_concurrency)
+        delete_function_reserved_concurrency(function_name)
+        get_function_provisioned_concurrency(function_name, alias_name, provisioned_concurrency)
+        put_function_provisioned_concurrency(function_name, alias_name, provisioned_concurrency)
+        delete_function_provisioned_concurrency(function_name, alias_name)
+        wait_for_provisioned_concurrency(function_name, alias_name)
         remove_tags(function_arn)
         add_tags(function_arn)
         remove_function()
@@ -248,7 +271,7 @@ def remove_role(policies, policy_arns, role_description, role_tags):
     
 
 @ext(handler=eh, op="get_lambda")
-def get_function(prev_state, function_name, desired_config, tags, bucket, object_name, trust_level):
+def get_function(prev_state, function_name, desired_config, tags, bucket, object_name, trust_level, publish_version):
     # lambda_client = boto3.client("lambda")
 
     if prev_state and prev_state.get("props", {}).get("name"):
@@ -269,27 +292,6 @@ def get_function(prev_state, function_name, desired_config, tags, bucket, object
 
         function_arn = function.get("FunctionArn")
         eh.add_props({"arn": function_arn})
-        
-        if trust_level == "zero":
-            #We do the full pull from S3 check
-            #Check if we need to actually update the functions code
-            deployed_hash = current_config.get("CodeSha256")
-            function_bytes = s3.get_object(Bucket=bucket, Key=object_name)["Body"]
-            bytes_hash = str(base64.b64encode(hashlib.sha256(function_bytes.read()).digest()))[2:-1]
-            print(f"function_bytes_hash = {bytes_hash}")
-
-            if deployed_hash == bytes_hash:
-                eh.add_log("No Code Change Detected", {"deployed_hash": deployed_hash, "bytes_hash": bytes_hash})
-            else:
-                eh.add_op("update_function_code")
-        
-        elif eh.props["initial_etag"] == prev_state.get("props", {}).get("initial_etag"):
-            #We just check the stored SHA
-            eh.add_log("Elevated Trust; No Code Change", {"initial_etag": eh.props["initial_etag"]})
-            
-        else:
-            eh.add_op("update_function_code")
-            
 
         for k, v in desired_config.items():
             if k == "Layers":
@@ -306,6 +308,31 @@ def get_function(prev_state, function_name, desired_config, tags, bucket, object
             if current_layer_arns != desired_layer_arns:
                 eh.add_log("Desired Layers Don't Match", {"current": current_layer_arns, "desired": desired_layer_arns})
                 eh.add_op("update_function_configuration")
+
+        #If we need to publish a version, the new configuration will not be applied
+        #unless we call update_function_code
+        if not eh.ops.get("update_function_configuration") or not publish_version:
+            if trust_level == "zero":
+                #We do the full pull from S3 check
+                #Check if we need to actually update the functions code
+                deployed_hash = current_config.get("CodeSha256")
+                function_bytes = s3.get_object(Bucket=bucket, Key=object_name)["Body"]
+                bytes_hash = str(base64.b64encode(hashlib.sha256(function_bytes.read()).digest()))[2:-1]
+                print(f"function_bytes_hash = {bytes_hash}")
+
+                if deployed_hash == bytes_hash:
+                    eh.add_log("No Code Change Detected", {"deployed_hash": deployed_hash, "bytes_hash": bytes_hash})
+                else:
+                    eh.add_op("update_function_code")
+            
+            elif eh.props["initial_etag"] == prev_state.get("props", {}).get("initial_etag"):
+                #We just check the stored SHA
+                eh.add_log("Elevated Trust; No Code Change", {"initial_etag": eh.props["initial_etag"]})
+                
+            else:
+                eh.add_op("update_function_code")
+        else:
+            eh.add_op("update_function_code")
 
         current_tags = function.get("Tags") or {}
         if tags != current_tags:
@@ -608,7 +635,7 @@ def run_codebuild_build(codebuild_build_def):
 
 
 @ext(handler=eh, op="create_function")
-def create_function(function_name, desired_config, bucket, object_name, tags):
+def create_function(function_name, desired_config, bucket, object_name, tags, publish_version):
     # lambda_client = boto3.client("lambda")
 
     def retry_create(message):
@@ -624,7 +651,7 @@ def create_function(function_name, desired_config, bucket, object_name, tags):
         create_params['Tags'] = tags
 
         lambda_response = lambda_client.create_function(**remove_none_attributes(create_params))
-
+        eh.add_props({"version": lambda_response["Version"]})
         # function_arn = lambda_response.get("FunctionArn")
         eh.add_log("Created Lambda Function", lambda_response)
 
@@ -661,6 +688,7 @@ def update_function_configuration(function_name, desired_config):
         lambda_response = lambda_client.update_function_configuration(
             **desired_config
         )
+        eh.add_props({"version": lambda_response.get("Version")})
         eh.add_log("Updated Function Config", lambda_response)
 
     except ClientError as e:
@@ -671,15 +699,19 @@ def update_function_configuration(function_name, desired_config):
 
 
 @ext(handler=eh, op="update_function_code")
-def update_function_code(function_name, bucket, object_name):
+def update_function_code(function_name, bucket, object_name, publish_version):
     # lambda_client = boto3.client("lambda")
 
+    params = {
+        "FunctionName": function_name,
+        "S3Bucket": bucket,
+        "S3Key": object_name,
+        "Publish": publish_version
+    }
+
     try:
-        lambda_response = lambda_client.update_function_code(
-            FunctionName=function_name,
-            S3Bucket=bucket,
-            S3Key=object_name
-        )
+        lambda_response = lambda_client.update_function_code(**params)
+        eh.add_props({"version": lambda_response.get("Version")})
         # function_arn = lambda_response.get("FunctionArn")
         eh.add_log("Updated Function Code", lambda_response)
 
@@ -689,7 +721,185 @@ def update_function_code(function_name, bucket, object_name):
             'PreconditionFailed', 'CodeVerificationFailed', 
             'InvalidCodeSignature', 'CodeSigningConfigNotFound'
             ])
+
+@ext(handler=eh, op="get_alias")
+def get_alias(function_name, alias_name):
+    function_version = eh.props.get("version")
+
+    try:
+        alias_response = lambda_client.get_alias(
+            FunctionName=function_name,
+            Name=alias_name
+        )
         
+        if function_version != alias_response["FunctionVersion"]:
+            eh.add_op("update_alias")
+        
+        else:
+            eh.add_props({
+                "Alias": {
+                    "arn": alias_response["AliasArn"],
+                    "name": alias_name
+                }
+            })
+            eh.add_log("Alias Already Present", alias_response)
+
+    except ClientError as e:
+        if e.response['Error']['Code'] == 'ResourceNotFoundException':
+            eh.add_op("create_alias")
+        else:
+            handle_common_errors(e, eh, "Get Alias Failed", 80, ['InvalidParameterValue'])
+
+@ext(handler=eh, op="create_alias")
+def create_alias(function_name, alias_name):
+    function_version = eh.props.get("version")
+
+    try:
+        alias_response = lambda_client.create_alias(
+            FunctionName=function_name,
+            Name=alias_name,
+            FunctionVersion=function_version
+        )
+        eh.add_props({
+            "Alias": {
+                "arn": alias_response["AliasArn"],
+                "name": alias_name
+            }
+        })
+        eh.add_log("Created Alias", alias_response)
+    except ClientError as e:
+        handle_common_errors(e, eh, "Create Alias Failed", 80, ['InvalidParameterValue', "ResourceNotFoundException"])
+
+@ext(handler=eh, op="update_alias")
+def update_alias(function_name, alias_name):
+    function_version = eh.props.get("version")
+
+    try:
+        alias_response = lambda_client.update_alias(
+            FunctionName=function_name,
+            Name=alias_name,
+            FunctionVersion=function_version
+        )
+        eh.add_props({
+            "Alias": {
+                "arn": alias_response["AliasArn"],
+                "name": alias_name
+            }
+        })
+        eh.add_log("Updated Alias", alias_response)
+    except ClientError as e:
+        handle_common_errors(e, eh, "Update Alias Failed", 80, ['InvalidParameterValue', "ResourceNotFoundException"])
+        
+@ext(handler=eh, op="remove_alias")
+def remove_alias(function_name, alias_name):
+    try:
+        alias_response = lambda_client.delete_alias(
+            FunctionName=function_name,
+            Name=alias_name
+        )
+        eh.add_log("Deleted Alias", alias_response)
+    except ClientError as e:
+        handle_common_errors(e, eh, "Deleted Alias Failed", 80, ['InvalidParameterValue', "ResourceNotFoundException"])
+
+@ext(handler=eh, op="get_function_reserved_concurrency")
+def get_function_reserved_concurrency(function_name, reserved_concurrency):
+    try:
+        reserved_concurrency_response = lambda_client.get_function_concurrency(
+            FunctionName=function_name
+        )
+        if reserved_concurrency and (reserved_concurrency_response.get("ReservedConcurrentExecutions") != reserved_concurrency):
+            eh.add_op("put_function_reserved_concurrency")
+        elif not reserved_concurrency and reserved_concurrency_response.get("ReservedConcurrentExecutions"):
+            eh.add_op("delete_function_reserved_concurrency")
+        eh.add_log("Got Reserved Concurrency Settings", reserved_concurrency_response)
+    except ClientError as e:
+        handle_common_errors(e, eh, "Get Reserved Concurrency Failed", 85, ['InvalidParameterValue'])
+
+@ext(handler=eh, op="put_function_reserved_concurrency")
+def put_function_reserved_concurrency(function_name, reserved_concurrency):
+    try:
+        reserved_concurrency_response = lambda_client.put_function_concurrency(
+            FunctionName=function_name,
+            ReservedConcurrentExecutions=reserved_concurrency
+        )
+        eh.add_log("Put Reserved Concurrency", reserved_concurrency_response)
+    except ClientError as e:
+        handle_common_errors(e, eh, "Put Reserved Concurrency Failed", 85, ['InvalidParameterValue'])
+
+@ext(handler=eh, op="delete_function_reserved_concurrency")
+def delete_function_reserved_concurrency(function_name):
+    try:
+        reserved_concurrency_response = lambda_client.delete_function_concurrency(
+            FunctionName=function_name
+        )
+        eh.add_log("Deleted Reserved Concurrency", reserved_concurrency_response)
+    except ClientError as e:
+        handle_common_errors(e, eh, "Delete Reserved Concurrency Failed", 85, ['InvalidParameterValue'])
+
+@ext(handler=eh, op="get_function_provisioned_concurrency")
+def get_function_provisioned_concurrency(function_name, alias_name, provisioned_concurrency):
+    try:
+        provisioned_concurrency_response = lambda_client.get_provisioned_concurrency_config(
+            FunctionName=function_name,
+            Qualifier=alias_name
+        )
+        
+        if provisioned_concurrency and (provisioned_concurrency_response.get("RequestedProvisionedConcurrentExecutions") != provisioned_concurrency):
+            eh.add_op("put_function_provisioned_concurrency")
+        
+        elif not provisioned_concurrency and provisioned_concurrency_response.get("RequestedProvisionedConcurrentExecutions"):
+            eh.add_op("delete_function_provisioned_concurrency")
+        
+        eh.add_log("Got Provisioned Concurrency Settings", provisioned_concurrency_response)
+    
+    except ClientError as e:
+        if e.response['Error']['Code'] == 'ProvisionedConcurrencyConfigNotFoundException':
+            if provisioned_concurrency:
+                eh.add_op("put_function_provisioned_concurrency")
+        else:
+            handle_common_errors(e, eh, "Get Provisioned Concurrency Failed", 90, ['InvalidParameterValue'])
+
+@ext(handler=eh, op="put_function_provisioned_concurrency")
+def put_function_provisioned_concurrency(function_name, alias_name, provisioned_concurrency):
+    try:
+        provisioned_concurrency_response = lambda_client.put_provisioned_concurrency_config(
+            FunctionName=function_name,
+            Qualifier=alias_name,
+            ProvisionedConcurrentExecutions=provisioned_concurrency
+        )
+        eh.add_op("wait_for_provisioned_concurrency")
+        eh.add_log("Put Provisioned Concurrency", provisioned_concurrency_response)
+    except ClientError as e:
+        handle_common_errors(e, eh, "Put Provisioned Concurrency Failed", 90, ['InvalidParameterValue'])
+
+@ext(handler=eh, op="delete_function_provisioned_concurrency")
+def delete_function_provisioned_concurrency(function_name, alias_name):
+    try:
+        provisioned_concurrency_response = lambda_client.delete_provisioned_concurrency_config(
+            FunctionName=function_name,
+            Qualifier=alias_name
+        )
+        eh.add_log("Deleted Provisioned Concurrency", provisioned_concurrency_response)
+    except ClientError as e:
+        if e.response['Error']['Code'] in ['ProvisionedConcurrencyConfigNotFoundException', 'ResourceNotFoundException']:
+            pass
+        else:
+            handle_common_errors(e, eh, "Delete Provisioned Concurrency Failed", 90, ['InvalidParameterValue'])
+
+@ext(handler=eh, op="wait_for_provisioned_concurrency")
+def wait_for_provisioned_concurrency(function_name, alias_name):
+    try:
+        provisioned_concurrency_response = lambda_client.get_provisioned_concurrency_config(
+            FunctionName=function_name,
+            Qualifier=alias_name
+        )
+        if provisioned_concurrency_response.get("Status") == "IN_PROGRESS":
+            eh.retry_error("Updating Provisioned Concurrency", 90)
+        elif provisioned_concurrency_response.get("Status") == "FAILED":
+            eh.add_log("Provisioned Concurrency Update Failed", provisioned_concurrency_response, is_error=True)
+            eh.perm_error("Provisioned Concurrency Update Failed", 90)
+    except ClientError as e:
+        handle_common_errors(e, eh, "Get Provisioned Concurrency Failed", 90, ['InvalidParameterValue'])
 
 @ext(handler=eh, op="gen_props")
 def gen_props(function_name, region):
