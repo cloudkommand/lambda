@@ -895,6 +895,7 @@ def wait_for_provisioned_concurrency(function_name, alias_name):
             Qualifier=alias_name
         )
         if provisioned_concurrency_response.get("Status") == "IN_PROGRESS":
+            eh.add_log("Provisioned Concurrency Still Updating", provisioned_concurrency_response)
             eh.retry_error("Updating Provisioned Concurrency", 90)
         elif provisioned_concurrency_response.get("Status") == "FAILED":
             eh.add_log("Provisioned Concurrency Update Failed", provisioned_concurrency_response, is_error=True)
