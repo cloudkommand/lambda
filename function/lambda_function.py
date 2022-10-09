@@ -170,6 +170,7 @@ def lambda_handler(event, context):
         remove_function()
         remove_role(policies, policy_arns, role_description, role_tags)
         gen_props(function_name, region)
+
         return eh.finish()
 
     except Exception as e:
@@ -901,6 +902,8 @@ def wait_for_provisioned_concurrency(function_name, alias_name):
         elif provisioned_concurrency_response.get("Status") == "FAILED":
             eh.add_log("Provisioned Concurrency Update Failed", provisioned_concurrency_response, is_error=True)
             eh.perm_error("Provisioned Concurrency Update Failed", 90)
+        else: #Success
+            eh.add_log("Provisioned Concurrency Updated", provisioned_concurrency_response)
     except ClientError as e:
         handle_common_errors(e, eh, "Get Provisioned Concurrency Failed", 90, ['InvalidParameterValue'])
 
