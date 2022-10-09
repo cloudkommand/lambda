@@ -311,7 +311,7 @@ def get_function(prev_state, function_name, desired_config, tags, bucket, object
 
         #If we need to publish a version, the new configuration will not be applied
         #unless we call update_function_code
-        if not eh.ops.get("update_function_configuration") or not publish_version:
+        if not eh.ops.get("update_function_configuration") and (not publish_version or prev_state.get("props", {}).get("version") != "$LATEST"):
             if trust_level == "zero":
                 #We do the full pull from S3 check
                 #Check if we need to actually update the functions code
