@@ -92,7 +92,7 @@ def lambda_handler(event, context):
         if pass_back_data:
             pass
         elif op == "upsert":
-            if trust_level == "full":
+            if trust_level in ["full", "code"]:
                 eh.add_op("compare_defs")
 
             eh.add_op("load_initial_props")
@@ -116,7 +116,7 @@ def lambda_handler(event, context):
             eh.add_op("remove_alias")
 
         compare_defs(event)
-        compare_etags(event, bucket, object_name)
+        compare_etags(event, bucket, object_name, trust_level)
         load_initial_props(bucket, object_name)
 
         upsert_role(prev_state, policies, policy_arns, role_description, role_tags)
@@ -228,7 +228,7 @@ def compare_defs(event):
         eh.add_log("Definitions Don't Match, Deploying", {"old": old_rendef, "new": new_rendef})
 
 @ext(handler=eh, op="compare_etags")
-def compare_etags(event, bucket, object_name):
+def compare_etags(event, bucket, object_name, trust_level):
     old_props = event.get("prev_state", {}).get("props", {})
 
     initial_etag = old_props.get("initial_etag")
@@ -238,11 +238,14 @@ def compare_etags(event, bucket, object_name):
     if eh.state.get("zip_etag"):
         new_etag = eh.state["zip_etag"]
         if initial_etag == new_etag:
-            eh.add_log("Full Trust: No Change Detected", {"initial_etag": initial_etag, "new_etag": new_etag})
-            eh.add_props(old_props)
-            eh.add_links(event.get("prev_state", {}).get("links", {}))
-            eh.add_state(event.get("prev_state", {}).get("state", {}))
-            eh.declare_return(200, 100, success=True)
+            if trust_level == "full":
+                eh.add_log("Full Trust: No Change Detected", {"initial_etag": initial_etag, "new_etag": new_etag})
+                eh.add_props(old_props)
+                eh.add_links(event.get("prev_state", {}).get("links", {}))
+                eh.add_state(event.get("prev_state", {}).get("state", {}))
+                eh.declare_return(200, 100, success=True)
+            else: #trust_level = "code"
+                eh.complete_op("add_requirements")
 
         else:
             eh.add_log("Code Changed, Deploying", {"old_etag": initial_etag, "new_etag": new_etag})
@@ -310,31 +313,34 @@ def get_function(prev_state, function_name, desired_config, tags, bucket, object
                 eh.add_log("Desired Layers Don't Match", {"current": current_layer_arns, "desired": desired_layer_arns})
                 eh.add_op("update_function_configuration")
 
-        #If we need to publish a version, the new configuration will not be applied
-        #unless we call update_function_code
-        if not eh.ops.get("update_function_configuration") and (not publish_version or prev_state.get("props", {}).get("version") != "$LATEST"):
-            eh.add_props({"version": prev_state.get("props", {}).get("version") or current_config["Version"]})
-            if trust_level == "zero":
-                #We do the full pull from S3 check
-                #Check if we need to actually update the functions code
-                deployed_hash = current_config.get("CodeSha256")
-                function_bytes = s3.get_object(Bucket=bucket, Key=object_name)["Body"]
-                bytes_hash = str(base64.b64encode(hashlib.sha256(function_bytes.read()).digest()))[2:-1]
-                print(f"function_bytes_hash = {bytes_hash}")
+        if trust_level == "zero":
+            #We do the full pull from S3 check
+            #Check if we need to actually update the functions code
+            deployed_hash = current_config.get("CodeSha256")
+            function_bytes = s3.get_object(Bucket=bucket, Key=object_name)["Body"]
+            bytes_hash = str(base64.b64encode(hashlib.sha256(function_bytes.read()).digest()))[2:-1]
+            print(f"function_bytes_hash = {bytes_hash}")
 
-                if deployed_hash == bytes_hash:
-                    eh.add_log("No Code Change Detected", {"deployed_hash": deployed_hash, "bytes_hash": bytes_hash})
-                else:
-                    eh.add_op("update_function_code")
-            
-            elif eh.props["initial_etag"] == prev_state.get("props", {}).get("initial_etag"):
-                #We just check the stored SHA
-                eh.add_log("Elevated Trust; No Code Change", {"initial_etag": eh.props["initial_etag"]})
-                
+            if deployed_hash == bytes_hash:
+                eh.add_props({"version": prev_state.get("props", {}).get("version") or current_config["Version"]})
+                eh.add_log("No Code Change Detected", {"deployed_hash": deployed_hash, "bytes_hash": bytes_hash})
             else:
                 eh.add_op("update_function_code")
-        else:
+        
+        #We've already done this check for the other trust levels, but we do it again here
+        elif eh.props["initial_etag"] == prev_state.get("props", {}).get("initial_etag"):
+            #We just check the stored SHA
+            eh.add_props({"version": prev_state.get("props", {}).get("version") or current_config["Version"]})
+            eh.add_log("Elevated Trust; No Code Change", {"initial_etag": eh.props["initial_etag"]})
+            
+        else: #Elevated trust level and code has changed
             eh.add_op("update_function_code")
+
+        if publish_version:
+            if eh.ops.get("update_function_configuration") and not eh.ops.get("update_function_code"):
+                eh.add_op("publish_version")
+            if prev_state.get("props", {}).get("version") == "$LATEST":
+                eh.add_op("publish_version")
 
         current_tags = function.get("Tags") or {}
         if tags != current_tags:
@@ -354,7 +360,17 @@ def get_function(prev_state, function_name, desired_config, tags, bucket, object
             eh.add_log("Function Does Not Exist", {"name": function_name})
         else:
             handle_common_errors(e, eh, "Get Function Failed", 20)
-    
+
+@ext(handler=eh, op="publish_version")
+def publish_version(function_name):
+    try:
+        response = lambda_client.publish_version(
+            FunctionName=function_name
+        )
+        eh.add_log("Published Version", response)
+        eh.add_props({"version": response["Version"]})
+    except ClientError as e:
+        handle_common_errors(e, eh, "Publish Version Failed", 75)
 
 @ext(handler=eh, op="add_requirements")
 def add_requirements(context, runtime):
