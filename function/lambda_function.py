@@ -86,7 +86,8 @@ def lambda_handler(event, context):
                 eh.perm_error("Invalid layer parameters", 0)
 
         function_name = cdef.get("name") or component_safe_name(project_code, repo_id, cname)
-        alias_name = prev_state.get("props", {}).get("Alias", {}).get("name") or function_name
+        alias_name = prev_state.get("props", {}).get("Alias", {}).get("name") or \
+            (function_name if len(function_name) < 40 else function_name[:20])
         pass_back_data = event.get("pass_back_data", {})
 
         if pass_back_data:
@@ -831,7 +832,7 @@ def get_function_reserved_concurrency(function_name, reserved_concurrency):
             eh.add_op("delete_function_reserved_concurrency")
         eh.add_log("Got Reserved Concurrency Settings", reserved_concurrency_response)
     except ClientError as e:
-        handle_common_errors(e, eh, "Get Reserved Concurrency Failed", 85, ['InvalidParameterValue'])
+        handle_common_errors(e, eh, "Get Reserved Concurrency Failed", 85, ['InvalidParameterValueException'])
 
 @ext(handler=eh, op="put_function_reserved_concurrency")
 def put_function_reserved_concurrency(function_name, reserved_concurrency):
@@ -842,7 +843,7 @@ def put_function_reserved_concurrency(function_name, reserved_concurrency):
         )
         eh.add_log("Put Reserved Concurrency", reserved_concurrency_response)
     except ClientError as e:
-        handle_common_errors(e, eh, "Put Reserved Concurrency Failed", 85, ['InvalidParameterValue'])
+        handle_common_errors(e, eh, "Put Reserved Concurrency Failed", 85, ['InvalidParameterValueException'])
 
 @ext(handler=eh, op="delete_function_reserved_concurrency")
 def delete_function_reserved_concurrency(function_name):
@@ -852,7 +853,7 @@ def delete_function_reserved_concurrency(function_name):
         )
         eh.add_log("Deleted Reserved Concurrency", reserved_concurrency_response)
     except ClientError as e:
-        handle_common_errors(e, eh, "Delete Reserved Concurrency Failed", 85, ['InvalidParameterValue'])
+        handle_common_errors(e, eh, "Delete Reserved Concurrency Failed", 85, ['InvalidParameterValueException'])
 
 @ext(handler=eh, op="get_function_provisioned_concurrency")
 def get_function_provisioned_concurrency(function_name, alias_name, provisioned_concurrency):
@@ -876,7 +877,7 @@ def get_function_provisioned_concurrency(function_name, alias_name, provisioned_
             if provisioned_concurrency:
                 eh.add_op("put_function_provisioned_concurrency")
         else:
-            handle_common_errors(e, eh, "Get Provisioned Concurrency Failed", 90, ['InvalidParameterValue'])
+            handle_common_errors(e, eh, "Get Provisioned Concurrency Failed", 90, ['InvalidParameterValueException'])
 
 @ext(handler=eh, op="put_function_provisioned_concurrency")
 def put_function_provisioned_concurrency(function_name, alias_name, provisioned_concurrency):
@@ -889,7 +890,7 @@ def put_function_provisioned_concurrency(function_name, alias_name, provisioned_
         eh.add_op("wait_for_provisioned_concurrency")
         eh.add_log("Put Provisioned Concurrency", provisioned_concurrency_response)
     except ClientError as e:
-        handle_common_errors(e, eh, "Put Provisioned Concurrency Failed", 90, ['InvalidParameterValue'])
+        handle_common_errors(e, eh, "Put Provisioned Concurrency Failed", 90, ['InvalidParameterValueException'])
 
 @ext(handler=eh, op="delete_function_provisioned_concurrency")
 def delete_function_provisioned_concurrency(function_name, alias_name):
@@ -903,7 +904,7 @@ def delete_function_provisioned_concurrency(function_name, alias_name):
         if e.response['Error']['Code'] in ['ProvisionedConcurrencyConfigNotFoundException', 'ResourceNotFoundException']:
             pass
         else:
-            handle_common_errors(e, eh, "Delete Provisioned Concurrency Failed", 90, ['InvalidParameterValue'])
+            handle_common_errors(e, eh, "Delete Provisioned Concurrency Failed", 90, ['InvalidParameterValueException'])
 
 @ext(handler=eh, op="wait_for_provisioned_concurrency")
 def wait_for_provisioned_concurrency(function_name, alias_name):
@@ -921,7 +922,7 @@ def wait_for_provisioned_concurrency(function_name, alias_name):
         else: #Success
             eh.add_log("Provisioned Concurrency Updated", provisioned_concurrency_response)
     except ClientError as e:
-        handle_common_errors(e, eh, "Get Provisioned Concurrency Failed", 90, ['InvalidParameterValue'])
+        handle_common_errors(e, eh, "Get Provisioned Concurrency Failed", 90, ['InvalidParameterValueException'])
 
 @ext(handler=eh, op="gen_props")
 def gen_props(function_name, region):
