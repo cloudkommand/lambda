@@ -668,6 +668,8 @@ def create_function(function_name, desired_config, bucket, object_name, tags, pu
                 "S3Key": object_name
             }
         create_params['Tags'] = tags
+        if publish_version:
+            create_params['Publish'] = True
 
         lambda_response = lambda_client.create_function(**remove_none_attributes(create_params))
         eh.add_props({"version": lambda_response["Version"]})
