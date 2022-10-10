@@ -32,6 +32,7 @@
                         "lambda:DeleteAlias",
                         "lambda:GetAlias",
                         "lambda:UpdateAlias",
+                        "lambda:PublishVersion",
                         "lambda:DeleteFunctionConcurrency",
                         "lambda:PutFunctionConcurrency",
                         "lambda:GetFunctionConcurrency",
