@@ -323,7 +323,12 @@ def get_function(prev_state, function_name, desired_config, tags, bucket, object
             print(f"function_bytes_hash = {bytes_hash}")
 
             if deployed_hash == bytes_hash:
-                eh.add_props({"version": prev_state.get("props", {}).get("version") or current_config["Version"]})
+                old_props = prev_state.get("props", {})
+                eh.add_props({
+                    "version": old_props.get("version") or current_config["Version"],
+                    "version_arn": old_props.get("version_arn") or current_config["FunctionArn"] + ":" + current_config["Version"]
+                })
+                
                 eh.add_log("No Code Change Detected", {"deployed_hash": deployed_hash, "bytes_hash": bytes_hash})
             else:
                 eh.add_op("update_function_code")
@@ -331,7 +336,11 @@ def get_function(prev_state, function_name, desired_config, tags, bucket, object
         #We've already done this check for the other trust levels, but we do it again here
         elif eh.props["initial_etag"] == prev_state.get("props", {}).get("initial_etag"):
             #We just check the stored SHA
-            eh.add_props({"version": prev_state.get("props", {}).get("version") or current_config["Version"]})
+            old_props = prev_state.get("props", {})
+            eh.add_props({
+                "version": old_props.get("version") or current_config["Version"],
+                "version_arn": old_props.get("version_arn") or current_config["FunctionArn"] + ":" + current_config["Version"]
+            })
             eh.add_log("Elevated Trust; No Code Change", {"initial_etag": eh.props["initial_etag"]})
             
         else: #Elevated trust level and code has changed
@@ -369,7 +378,10 @@ def publish_version(function_name):
             FunctionName=function_name
         )
         eh.add_log("Published Version", response)
-        eh.add_props({"version": response["Version"]})
+        eh.add_props({
+            "version": response["Version"],
+            "version_arn": f"{response['FunctionArn']}:{response['Version']}"
+        })
     except ClientError as e:
         handle_common_errors(e, eh, "Publish Version Failed", 75)
 
@@ -672,7 +684,11 @@ def create_function(function_name, desired_config, bucket, object_name, tags, pu
             create_params['Publish'] = True
 
         lambda_response = lambda_client.create_function(**remove_none_attributes(create_params))
-        eh.add_props({"version": lambda_response["Version"]})
+        eh.add_props({
+            "version": lambda_response["Version"],
+            "version_arn": f"{lambda_response['FunctionArn']}:{lambda_response['Version']}" \
+                if publish_version else lambda_response['FunctionArn']
+        })
         # function_arn = lambda_response.get("FunctionArn")
         eh.add_log("Created Lambda Function", lambda_response)
 
@@ -709,7 +725,6 @@ def update_function_configuration(function_name, desired_config):
         lambda_response = lambda_client.update_function_configuration(
             **desired_config
         )
-        eh.add_props({"version": lambda_response.get("Version")})
         eh.add_log("Updated Function Config", lambda_response)
 
     except ClientError as e:
@@ -732,7 +747,12 @@ def update_function_code(function_name, bucket, object_name, publish_version):
 
     try:
         lambda_response = lambda_client.update_function_code(**params)
-        eh.add_props({"version": lambda_response.get("Version")})
+        eh.add_props({
+            "version": lambda_response.get("Version"),
+            "version_arn": f"{lambda_response['FunctionArn']}:{lambda_response['Version']}" \
+                if publish_version else lambda_response['FunctionArn']
+        })
+        
         # function_arn = lambda_response.get("FunctionArn")
         eh.add_log("Updated Function Code", lambda_response)
 
