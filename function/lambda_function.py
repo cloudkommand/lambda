@@ -93,8 +93,10 @@ def lambda_handler(event, context):
         if pass_back_data:
             pass
         elif op == "upsert":
-            if trust_level in ["full", "code"]:
+            if trust_level == "full":
                 eh.add_op("compare_defs")
+            elif trust_level == "code":
+                eh.add_op("compare_etags")
 
             eh.add_op("load_initial_props")
             eh.add_op('upsert_role')
@@ -230,7 +232,8 @@ def compare_defs(event):
 
 @ext(handler=eh, op="compare_etags")
 def compare_etags(event, bucket, object_name, trust_level):
-    old_props = event.get("prev_state", {}).get("props", {})
+    prev_state = event.get("prev_state", {})
+    old_props = prev_state.get("props", {})
 
     initial_etag = old_props.get("initial_etag")
 
@@ -246,7 +249,13 @@ def compare_etags(event, bucket, object_name, trust_level):
                 eh.add_state(event.get("prev_state", {}).get("state", {}))
                 eh.declare_return(200, 100, success=True)
             else: #trust_level = "code"
-                eh.complete_op("add_requirements")
+                component_def = event.get("component_def")
+                old_component_def = prev_state.get("rendef", {})
+                #Check the things that could impact the build
+                if component_def.get("runtime") == old_component_def.get("runtime") and \
+                    component_def.get("requirements") == old_component_def.get("requirements") and \
+                        component_def.get("Codebuild Project") == old_component_def.get("Codebuild Project"):
+                    eh.complete_op("add_requirements")
 
         else:
             eh.add_log("Code Changed, Deploying", {"old_etag": initial_etag, "new_etag": new_etag})
