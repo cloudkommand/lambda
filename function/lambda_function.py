@@ -16,10 +16,15 @@ from extutil import remove_none_attributes, gen_log, creturn, handle_common_erro
     random_id, create_zip
 
 eh = ExtensionHandler()
-ALLOWED_RUNTIMES = ["python3.9", "python3.8", "python3.6", "python3.7", "nodejs14.x", "nodejs12.x", "nodejs10.x", "ruby2.7", "ruby2.5"]
+ALLOWED_RUNTIMES = [
+    "python3.9", "python3.8", "python3.6", "python3.7", 
+    "nodejs14.x", "nodejs12.x", "nodejs10.x", 
+    "ruby2.7", "nodejs16.x", "go1.x"
+]
 
 
 lambda_client = boto3.client("lambda")
+logs = boto3.client("logs")
 s3 = boto3.client("s3")
 def lambda_handler(event, context):
     try:
@@ -88,6 +93,9 @@ def lambda_handler(event, context):
         function_name = cdef.get("name") or component_safe_name(project_code, repo_id, cname)
         alias_name = prev_state.get("props", {}).get("Alias", {}).get("name") or \
             (function_name if len(function_name) < 40 else function_name[:20])
+        
+        remove_logs_on_delete = cdef.get("remove_logs_on_delete") or False
+
         pass_back_data = event.get("pass_back_data", {})
 
         if pass_back_data:
@@ -105,7 +113,7 @@ def lambda_handler(event, context):
             eh.add_op("get_alias")
             eh.add_op("get_function_reserved_concurrency")
             eh.add_op("get_function_provisioned_concurrency")
-            if cdef.get("requirements"):
+            if cdef.get("requirements") or runtime.startswith(("go", "java", "dotnet")):
                 eh.add_op("add_requirements")
                 eh.add_state({"requirements": cdef.get("requirements")})
             elif cdef.get("requirements.txt"):
@@ -114,6 +122,8 @@ def lambda_handler(event, context):
         elif op == "delete":
             if prev_state.get("props", {}).get("Codebuild Project"):
                 eh.add_op("setup_codebuild_project")
+            if remove_logs_on_delete:
+                eh.add_op("remove_log_group", {"name": function_name})
             eh.add_op('remove_role')
             eh.add_op("remove_old", {"name": function_name})
             eh.add_op("remove_alias")
@@ -153,7 +163,7 @@ def lambda_handler(event, context):
         run_codebuild_build(codebuild_build_override_def)
 
         #Then we can deploy the lambda
-        get_function(prev_state, function_name, desired_config, tags, bucket, eh.state.get("new_object_name") or object_name, trust_level, publish_version) #Moved here so that we can do object checks
+        get_function(prev_state, function_name, desired_config, tags, bucket, eh.state.get("new_object_name") or object_name, trust_level, publish_version, remove_logs_on_delete) #Moved here so that we can do object checks
         create_function(function_name, desired_config, bucket, eh.state.get("new_object_name") or object_name, tags, publish_version)
         update_function_configuration(function_name, desired_config)
         update_function_code(function_name, bucket, eh.state.get("new_object_name") or object_name, publish_version)
@@ -171,6 +181,7 @@ def lambda_handler(event, context):
         remove_tags(function_arn)
         add_tags(function_arn)
         remove_function()
+        remove_log_group()
         remove_role(policies, policy_arns, role_description, role_tags)
         gen_props(function_name, region)
 
@@ -188,6 +199,8 @@ def get_default_handler(runtime):
         return "lambda_function.lambda_handler"
     elif runtime.startswith("node"):
         return "index.handler"
+    elif runtime.startswith("go"):
+        return "main"
 
 def manage_role(op, policies, policy_arns, role_description, role_tags):
     function_arn = lambda_env('role_lambda_name')
@@ -252,9 +265,7 @@ def compare_etags(event, bucket, object_name, trust_level):
                 component_def = event.get("component_def")
                 old_component_def = prev_state.get("rendef", {})
                 #Check the things that could impact the build
-                if component_def.get("runtime") == old_component_def.get("runtime") and \
-                    component_def.get("requirements") == old_component_def.get("requirements") and \
-                        component_def.get("Codebuild Project") == old_component_def.get("Codebuild Project"):
+                if all([component_def.get(x) == old_component_def.get(x) for x in ["name", "runtime", "requirements", "Codebuild Project"]]):
                     eh.complete_op("add_requirements")
 
         else:
@@ -285,7 +296,7 @@ def remove_role(policies, policy_arns, role_description, role_tags):
     
 
 @ext(handler=eh, op="get_lambda")
-def get_function(prev_state, function_name, desired_config, tags, bucket, object_name, trust_level, publish_version):
+def get_function(prev_state, function_name, desired_config, tags, bucket, object_name, trust_level, publish_version, remove_logs_on_delete):
     # lambda_client = boto3.client("lambda")
 
     if prev_state and prev_state.get("props", {}).get("name"):
@@ -293,6 +304,8 @@ def get_function(prev_state, function_name, desired_config, tags, bucket, object
         if old_function_name and (old_function_name != function_name):
             eh.add_op("remove_old", {"name": old_function_name, "create_and_remove": True})
             eh.add_op("create_function")
+            if remove_logs_on_delete:
+                eh.add_op("remove_log_group", {"name": old_function_name, "create_and_remove": True})
             return 0
 
     try:
@@ -1042,6 +1055,26 @@ def remove_function():
             eh.retry_error(str(e), 90 if create_and_delete else 15)
             eh.add_log(f"Error Deleting Function", {"name": function_to_delete}, True)
 
+@ext(handler=eh, op="remove_log_group")
+def remove_log_group():
+    op_def = eh.ops['remove_log_group']
+    log_group_to_delete = f"/aws/lambda/{op_def['name']}"
+    create_and_delete = op_def.get("create_and_delete") or False
+
+    try:
+        delete_response = logs.delete_log_group(
+            logGroupName=log_group_to_delete
+        )
+        eh.add_log(f"Deleted Log Group", delete_response)
+
+    except ClientError as e:
+        if e.response['Error']['Code'] == 'ResourceNotFoundException':
+            eh.add_log(f"Log Group Does Not Exist", {"function_name": log_group_to_delete})
+        else:
+            eh.retry_error(str(e), 98 if create_and_delete else 70)
+            eh.add_log(f"Error Deleting Log Group", {"name": log_group_to_delete}, True)
+
+
 def get_default_buildspec_params(runtime):
     pre_build_commands = []
     build_commands = []
@@ -1056,6 +1089,11 @@ def get_default_buildspec_params(runtime):
         build_commands = [
             "echo 'Installing NPM Dependencies'",
             "npm install --production"
+        ]
+    elif runtime.startswith("go"):
+        build_commands = [
+            "echo 'Installing Go Dependencies'",
+            "go build main.go"
         ]
         # post_build_commands = [
         #     "echo 'Listing Files'",
