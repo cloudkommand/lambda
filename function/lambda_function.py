@@ -113,7 +113,7 @@ def lambda_handler(event, context):
             eh.add_op("get_alias")
             eh.add_op("get_function_reserved_concurrency")
             eh.add_op("get_function_provisioned_concurrency")
-            if cdef.get("requirements"):
+            if cdef.get("requirements") or runtime.startswith(("go", "java", "dotnet")):
                 eh.add_op("add_requirements")
                 eh.add_state({"requirements": cdef.get("requirements")})
             elif cdef.get("requirements.txt"):
