@@ -1058,7 +1058,7 @@ def remove_function():
 @ext(handler=eh, op="remove_log_group")
 def remove_log_group():
     op_def = eh.ops['remove_log_group']
-    log_group_to_delete = op_def['name']
+    log_group_to_delete = f"/aws/lambda/{op_def['name']}"
     create_and_delete = op_def.get("create_and_delete") or False
 
     try:
