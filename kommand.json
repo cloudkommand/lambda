@@ -39,6 +39,7 @@
                         "lambda:DeleteProvisionedConcurrencyConfig",
                         "lambda:PutProvisionedConcurrencyConfig",
                         "lambda:GetProvisionedConcurrencyConfig",
+                        "logs:DeleteLogGroup",
                         "s3:ListBucket",
                         "s3:GetObject",
                         "s3:PutObject"
