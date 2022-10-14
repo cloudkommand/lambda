@@ -16,7 +16,11 @@ from extutil import remove_none_attributes, gen_log, creturn, handle_common_erro
     random_id, create_zip
 
 eh = ExtensionHandler()
-ALLOWED_RUNTIMES = ["python3.9", "python3.8", "python3.6", "python3.7", "nodejs14.x", "nodejs12.x", "nodejs10.x", "ruby2.7", "ruby2.5"]
+ALLOWED_RUNTIMES = [
+    "python3.9", "python3.8", "python3.6", "python3.7", 
+    "nodejs14.x", "nodejs12.x", "nodejs10.x", 
+    "ruby2.7", "nodejs16.x", "go1.x"
+]
 
 
 lambda_client = boto3.client("lambda")
@@ -195,6 +199,8 @@ def get_default_handler(runtime):
         return "lambda_function.lambda_handler"
     elif runtime.startswith("node"):
         return "index.handler"
+    elif runtime.startswith("go"):
+        return "main"
 
 def manage_role(op, policies, policy_arns, role_description, role_tags):
     function_arn = lambda_env('role_lambda_name')
@@ -1085,6 +1091,11 @@ def get_default_buildspec_params(runtime):
         build_commands = [
             "echo 'Installing NPM Dependencies'",
             "npm install --production"
+        ]
+    elif runtime.startswith("go"):
+        build_commands = [
+            "echo 'Installing Go Dependencies'",
+            "go build main.go"
         ]
         # post_build_commands = [
         #     "echo 'Listing Files'",
