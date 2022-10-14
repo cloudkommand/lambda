@@ -305,7 +305,7 @@ def get_function(prev_state, function_name, desired_config, tags, bucket, object
             eh.add_op("remove_old", {"name": old_function_name, "create_and_remove": True})
             eh.add_op("create_function")
             if remove_logs_on_delete:
-                eh.add_op("remove_logs_on_delete", {"name": old_function_name, "create_and_remove": True})
+                eh.add_op("remove_log_group", {"name": old_function_name, "create_and_remove": True})
             return 0
 
     try:
