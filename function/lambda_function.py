@@ -1051,9 +1051,9 @@ def remove_function():
             eh.retry_error(str(e), 90 if create_and_delete else 15)
             eh.add_log(f"Error Deleting Function", {"name": function_to_delete}, True)
 
-@ext(handler=eh, op="remove_old")
+@ext(handler=eh, op="remove_log_group")
 def remove_log_group():
-    op_def = eh.ops['remove_old']
+    op_def = eh.ops['remove_log_group']
     log_group_to_delete = op_def['name']
     create_and_delete = op_def.get("create_and_delete") or False
 
