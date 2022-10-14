@@ -265,9 +265,7 @@ def compare_etags(event, bucket, object_name, trust_level):
                 component_def = event.get("component_def")
                 old_component_def = prev_state.get("rendef", {})
                 #Check the things that could impact the build
-                if component_def.get("runtime") == old_component_def.get("runtime") and \
-                    component_def.get("requirements") == old_component_def.get("requirements") and \
-                        component_def.get("Codebuild Project") == old_component_def.get("Codebuild Project"):
+                if all([component_def.get(x) == old_component_def.get(x) for x in ["name", "runtime", "requirements", "Codebuild Project"]]):
                     eh.complete_op("add_requirements")
 
         else:
