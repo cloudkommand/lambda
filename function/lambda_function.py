@@ -750,9 +750,9 @@ def create_function(function_name, desired_config, bucket, object_name, tags, pu
                 "ImageUri": eh.props["ECR Image"]["uri"]
             }
             create_params["PackageType"] = "Image"
-            create_params["Runtime"] = False
-            create_params['Handler'] = False
-            
+            create_params["Runtime"] = None
+            create_params['Handler'] = None
+
         create_params['Tags'] = tags
         if publish_version:
             create_params['Publish'] = True
