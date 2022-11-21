@@ -738,6 +738,7 @@ def create_function(function_name, desired_config, bucket, object_name, tags, pu
         eh.retry_error(message, 20)
 
     try:
+        print(eh.props)
         create_params = desired_config
         if not eh.props.get("ECR Image"):
             create_params["Code"] = {
