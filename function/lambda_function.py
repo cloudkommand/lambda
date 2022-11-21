@@ -749,6 +749,7 @@ def create_function(function_name, desired_config, bucket, object_name, tags, pu
             create_params["Code"] = {
                 "ImageUri": eh.props["ECR Image"]["uri"]
             }
+            create_params["PackageType"] = "Image"
         create_params['Tags'] = tags
         if publish_version:
             create_params['Publish'] = True
