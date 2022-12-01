@@ -43,9 +43,7 @@ def lambda_handler(event, context):
         project_code = event.get("project_code")
         repo_id = event.get("repo_id")
         object_name = event.get("s3_object_name")
-        if runtime not in ALLOWED_RUNTIMES:
-            return creturn(200, 0, error=f"runtime {runtime} not allowed, please choose one of {ALLOWED_RUNTIMES}")
-
+        
         is_custom_container = cdef.get("container") or cdef.get("login_to_dockerhub")
 
         runtime = None if is_custom_container else (cdef.get("runtime") or "python3.9")
@@ -55,6 +53,9 @@ def lambda_handler(event, context):
         memory_size = cdef.get("memory_size") or 256
         environment = {"Variables": {k: str(v) for k,v in cdef.get("environment_variables").items()}} if cdef.get("environment_variables") else None
         trust_level = cdef.get("trust_level") or "code"
+
+        if runtime not in ALLOWED_RUNTIMES:
+            return creturn(200, 0, error=f"runtime {runtime} not allowed, please choose one of {ALLOWED_RUNTIMES}")
 
         xray = cdef.get("xray") or False
         tracing_config = cdef.get("tracing_config") or ({"Mode": "Active"} if xray else {"Mode": "PassThrough"})
