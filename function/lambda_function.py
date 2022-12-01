@@ -116,6 +116,8 @@ def lambda_handler(event, context):
             if cdef.get("container") or cdef.get("login_to_dockerhub"):
                 eh.add_op("setup_ecr_repo")
                 eh.add_op("setup_ecr_image")
+                handler = None
+                runtime = None
             elif cdef.get("requirements") or runtime.startswith(("go", "java", "dotnet")):
                 eh.add_op("add_requirements")
                 eh.add_state({"requirements": cdef.get("requirements")})
@@ -808,8 +810,9 @@ def update_function_configuration(function_name, desired_config):
     except ClientError as e:
         handle_common_errors(e, eh, "Config Update Failed", 60, [
             'PreconditionFailed', 'CodeVerificationFailed', 
-            'InvalidCodeSignature', 'CodeSigningConfigNotFound'
-            ])
+            'InvalidCodeSignature', 'CodeSigningConfigNotFound',
+            "InvalidParameterValueException"
+        ])
 
 
 @ext(handler=eh, op="update_function_code")
