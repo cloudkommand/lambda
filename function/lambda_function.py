@@ -54,7 +54,7 @@ def lambda_handler(event, context):
         environment = {"Variables": {k: str(v) for k,v in cdef.get("environment_variables").items()}} if cdef.get("environment_variables") else None
         trust_level = cdef.get("trust_level") or "code"
 
-        if runtime not in ALLOWED_RUNTIMES:
+        if (not is_custom_container) and (runtime not in ALLOWED_RUNTIMES):
             return creturn(200, 0, error=f"runtime {runtime} not allowed, please choose one of {ALLOWED_RUNTIMES}")
 
         xray = cdef.get("xray") or False
