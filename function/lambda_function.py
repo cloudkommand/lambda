@@ -152,6 +152,8 @@ def lambda_handler(event, context):
             "Layers": layer_arns or None
         })
 
+        print(f"desired_config: {desired_config}")
+
         function_arn = gen_lambda_arn(function_name, region, account_number)
 
         add_requirements(context, runtime)
