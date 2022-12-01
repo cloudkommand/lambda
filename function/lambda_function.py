@@ -719,7 +719,7 @@ def setup_ecr_image(prev_state, function_name, cdef, bucket, object_name, runtim
     ecr_image_def = cdef.get(key, {})
 
     component_def = {"repo_name": eh.props["ECR Repo"]["name"]}
-    if cdef.get("login_to_dockerhub")
+    if cdef.get("login_to_dockerhub"):
         component_def["dockerhub_username"] = lambda_env("dockerhub_username")
         component_def["dockerhub_password"] = lambda_env("dockerhub_password")
         component_def["login_to_dockerhub"] = True
