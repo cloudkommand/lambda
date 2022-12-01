@@ -43,11 +43,13 @@ def lambda_handler(event, context):
         project_code = event.get("project_code")
         repo_id = event.get("repo_id")
         object_name = event.get("s3_object_name")
-        runtime = cdef.get("runtime") or "python3.9"
         if runtime not in ALLOWED_RUNTIMES:
             return creturn(200, 0, error=f"runtime {runtime} not allowed, please choose one of {ALLOWED_RUNTIMES}")
 
-        handler = cdef.get("handler") or get_default_handler(runtime)
+        is_custom_container = cdef.get("container") or cdef.get("login_to_dockerhub")
+
+        runtime = None if is_custom_container else (cdef.get("runtime") or "python3.9")
+        handler = None if is_custom_container else (cdef.get("handler") or get_default_handler(runtime))
         description = cdef.get("description") or f"Lambda for component {cname}"
         timeout = cdef.get("timeout") or 5
         memory_size = cdef.get("memory_size") or 256
@@ -113,11 +115,9 @@ def lambda_handler(event, context):
             eh.add_op("get_alias")
             eh.add_op("get_function_reserved_concurrency")
             eh.add_op("get_function_provisioned_concurrency")
-            if cdef.get("container") or cdef.get("login_to_dockerhub"):
+            if is_custom_container:
                 eh.add_op("setup_ecr_repo")
                 eh.add_op("setup_ecr_image")
-                handler = None
-                runtime = None
             elif cdef.get("requirements") or runtime.startswith(("go", "java", "dotnet")):
                 eh.add_op("add_requirements")
                 eh.add_state({"requirements": cdef.get("requirements")})
@@ -724,8 +724,6 @@ def setup_ecr_image(prev_state, function_name, cdef, bucket, object_name, runtim
 
     component_def = {"repo_name": eh.props["ECR Repo"]["name"]}
     if cdef.get("login_to_dockerhub"):
-        component_def["dockerhub_username"] = lambda_env("dockerhub_username")
-        component_def["dockerhub_password"] = lambda_env("dockerhub_password")
         component_def["login_to_dockerhub"] = True
 
     component_def.update(ecr_image_def)
