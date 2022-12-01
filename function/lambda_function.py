@@ -113,7 +113,7 @@ def lambda_handler(event, context):
             eh.add_op("get_alias")
             eh.add_op("get_function_reserved_concurrency")
             eh.add_op("get_function_provisioned_concurrency")
-            if cdef.get("container"):
+            if cdef.get("container") or cdef.get("login_to_dockerhub"):
                 eh.add_op("setup_ecr_repo")
                 eh.add_op("setup_ecr_image")
             elif cdef.get("requirements") or runtime.startswith(("go", "java", "dotnet")):
@@ -719,6 +719,10 @@ def setup_ecr_image(prev_state, function_name, cdef, bucket, object_name, runtim
     ecr_image_def = cdef.get(key, {})
 
     component_def = {"repo_name": eh.props["ECR Repo"]["name"]}
+    if cdef.get("login_to_dockerhub")
+        component_def["dockerhub_username"] = lambda_env("dockerhub_username")
+        component_def["dockerhub_password"] = lambda_env("dockerhub_password")
+        component_def["login_to_dockerhub"] = True
 
     component_def.update(ecr_image_def)
 
