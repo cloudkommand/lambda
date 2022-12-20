@@ -22,6 +22,8 @@ ALLOWED_RUNTIMES = [
     "ruby2.7", "nodejs16.x", "go1.x"
 ]
 
+ECR_REPO_KEY = "ECR Repo"
+
 
 lambda_client = boto3.client("lambda")
 logs = boto3.client("logs")
@@ -126,6 +128,9 @@ def lambda_handler(event, context):
                 eh.add_op("add_requirements")
                 eh.add_state({"requirements": "$$file"})
         elif op == "delete":
+            if prev_state.get("props", {}).get(ECR_REPO_KEY):
+                eh.add_op("setup_ecr_repo")
+                eh.add_op("setup_ecr_image")
             if prev_state.get("props", {}).get("Codebuild Project"):
                 eh.add_op("setup_codebuild_project")
             if remove_logs_on_delete:
@@ -704,14 +709,12 @@ def run_codebuild_build(codebuild_build_def):
 
 @ext(handler=eh, op="setup_ecr_repo")
 def setup_ecr_repo(prev_state, function_name, cdef, op):
-    key = "ECR Repo"
-
-    ecr_repo_def = cdef.get(key, {})
+    ecr_repo_def = cdef.get(ECR_REPO_KEY, {})
 
     eh.invoke_extension(
         arn=lambda_env("ecr_repo_lambda_name"),
         component_def=ecr_repo_def, 
-        child_key=key, progress_start=25, 
+        child_key=ECR_REPO_KEY, progress_start=25, 
         progress_end=30
     )
 
@@ -723,7 +726,7 @@ def setup_ecr_image(prev_state, function_name, cdef, bucket, object_name, runtim
 
     ecr_image_def = cdef.get(key, {})
 
-    component_def = {"repo_name": eh.props["ECR Repo"]["name"]}
+    component_def = {"repo_name": eh.props[ECR_REPO_KEY]["name"]}
     if cdef.get("login_to_dockerhub"):
         component_def["login_to_dockerhub"] = True
 
