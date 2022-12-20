@@ -726,7 +726,10 @@ def setup_ecr_image(prev_state, function_name, cdef, bucket, object_name, runtim
 
     ecr_image_def = cdef.get(key, {})
 
-    component_def = {"repo_name": eh.props[ECR_REPO_KEY]["name"]}
+    component_def = {
+        "repo_name": eh.props[ECR_REPO_KEY]["name"] \
+            if op == "upsert" else prev_state["props"][ECR_REPO_KEY]["name"]
+    }
     if cdef.get("login_to_dockerhub"):
         component_def["login_to_dockerhub"] = True
 
