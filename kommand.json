@@ -10,7 +10,9 @@
             "environment_variables": {
                 "role_lambda_name": "@iam.role:props.function_name",
                 "codebuild_project_lambda_name": "@codebuild.project:props.function_name",
-                "codebuild_build_lambda_name": "@codebuildactions.runbuild:props.function_name"
+                "codebuild_build_lambda_name": "@codebuildactions.runbuild:props.function_name",
+                "ecr_image_lambda_name": "@ecr.image:props.function_name",
+                "ecr_repo_lambda_name": "@ecr.repo:props.function_name"
             },
             "policy": {
                 "Version": "2012-10-17",
@@ -39,6 +41,19 @@
                         "lambda:DeleteProvisionedConcurrencyConfig",
                         "lambda:PutProvisionedConcurrencyConfig",
                         "lambda:GetProvisionedConcurrencyConfig",
+                        "ecr:SetRepositoryPolicy",
+                        "ecr:GetDownloadUrlForLayer",
+                        "ecr:BatchGetImage",
+                        "ecr:CompleteLayerUpload",
+                        "ecr:DescribeImages",
+                        "ecr:DescribeRepositories",
+                        "ecr:UploadLayerPart",
+                        "ecr:ListImages",
+                        "ecr:InitiateLayerUpload",
+                        "ecr:BatchCheckLayerAvailability",
+                        "ecr:GetRepositoryPolicy",
+                        "ecr:PutImage",
+                        "ecr:GetAuthorizationToken",
                         "logs:DeleteLogGroup",
                         "s3:ListBucket",
                         "s3:GetObject",
@@ -138,6 +153,10 @@
                             "type": "string",
                             "description": "A list of layer version ARNs to attach to the function"
                         }
+                    },
+                    "login_to_dockerhub": {
+                        "type": "boolean",
+                        "description": "Set to true if you want to login to dockerhub before building a custom image"
                     }
                 },
                 "anyOf": [
@@ -361,6 +380,7 @@
     },
     "repos": {
         "iam": "https://github.com/cloudkommand/iam",
+        "ecr": "https://github.com/cloudkommand/ecr",
         "codebuild": "https://github.com/cloudkommand/codebuild",
         "codebuildactions": "https://github.com/cloudkommand/codebuildactions"
     }

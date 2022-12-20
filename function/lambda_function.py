@@ -22,6 +22,8 @@ ALLOWED_RUNTIMES = [
     "ruby2.7", "nodejs16.x", "go1.x"
 ]
 
+ECR_REPO_KEY = "ECR Repo"
+
 
 lambda_client = boto3.client("lambda")
 logs = boto3.client("logs")
@@ -43,16 +45,19 @@ def lambda_handler(event, context):
         project_code = event.get("project_code")
         repo_id = event.get("repo_id")
         object_name = event.get("s3_object_name")
-        runtime = cdef.get("runtime") or "python3.9"
-        if runtime not in ALLOWED_RUNTIMES:
-            return creturn(200, 0, error=f"runtime {runtime} not allowed, please choose one of {ALLOWED_RUNTIMES}")
+        
+        is_custom_container = cdef.get("container") or cdef.get("login_to_dockerhub")
 
-        handler = cdef.get("handler") or get_default_handler(runtime)
+        runtime = None if is_custom_container else (cdef.get("runtime") or "python3.9")
+        handler = None if is_custom_container else (cdef.get("handler") or get_default_handler(runtime))
         description = cdef.get("description") or f"Lambda for component {cname}"
         timeout = cdef.get("timeout") or 5
         memory_size = cdef.get("memory_size") or 256
         environment = {"Variables": {k: str(v) for k,v in cdef.get("environment_variables").items()}} if cdef.get("environment_variables") else None
         trust_level = cdef.get("trust_level") or "code"
+
+        if (not is_custom_container) and (runtime not in ALLOWED_RUNTIMES):
+            return creturn(200, 0, error=f"runtime {runtime} not allowed, please choose one of {ALLOWED_RUNTIMES}")
 
         xray = cdef.get("xray") or False
         tracing_config = cdef.get("tracing_config") or ({"Mode": "Active"} if xray else {"Mode": "PassThrough"})
@@ -113,13 +118,19 @@ def lambda_handler(event, context):
             eh.add_op("get_alias")
             eh.add_op("get_function_reserved_concurrency")
             eh.add_op("get_function_provisioned_concurrency")
-            if cdef.get("requirements") or runtime.startswith(("go", "java", "dotnet")):
+            if is_custom_container:
+                eh.add_op("setup_ecr_repo")
+                eh.add_op("setup_ecr_image")
+            elif cdef.get("requirements") or runtime.startswith(("go", "java", "dotnet")):
                 eh.add_op("add_requirements")
                 eh.add_state({"requirements": cdef.get("requirements")})
             elif cdef.get("requirements.txt"):
                 eh.add_op("add_requirements")
                 eh.add_state({"requirements": "$$file"})
         elif op == "delete":
+            if prev_state.get("props", {}).get(ECR_REPO_KEY):
+                eh.add_op("setup_ecr_repo")
+                eh.add_op("setup_ecr_image")
             if prev_state.get("props", {}).get("Codebuild Project"):
                 eh.add_op("setup_codebuild_project")
             if remove_logs_on_delete:
@@ -147,6 +158,8 @@ def lambda_handler(event, context):
             "Layers": layer_arns or None
         })
 
+        print(f"desired_config: {desired_config}")
+
         function_arn = gen_lambda_arn(function_name, region, account_number)
 
         add_requirements(context, runtime)
@@ -161,6 +174,10 @@ def lambda_handler(event, context):
         #All other runtimes that require building:
         setup_codebuild_project(bucket, object_name, codebuild_project_override_def, runtime, op)
         run_codebuild_build(codebuild_build_override_def)
+
+        #Custom Lambda Containers
+        setup_ecr_repo(prev_state, function_name, cdef, op)
+        setup_ecr_image(prev_state, function_name, cdef, bucket, object_name, runtime, op)
 
         #Then we can deploy the lambda
         get_function(prev_state, function_name, desired_config, tags, bucket, eh.state.get("new_object_name") or object_name, trust_level, publish_version, remove_logs_on_delete) #Moved here so that we can do object checks
@@ -231,17 +248,22 @@ def get_s3_etag(bucket, object_name):
 
 @ext(handler=eh, op="compare_defs")
 def compare_defs(event):
-    old_rendef = event.get("prev_state", {}).get("rendef", {})
+    old_digest = event.get("prev_state", {}).get("props", {}).get("def_hash")
     new_rendef = event.get("component_def")
 
-    _ = old_rendef.pop("trust_level", None)
     _ = new_rendef.pop("trust_level", None)
-    
-    if old_rendef == new_rendef:
-        eh.add_op("compare_etags")
+
+    dhash = hashlib.md5()
+    dhash.update(json.dumps(new_rendef, sort_keys=True).encode())
+    digest = dhash.hexdigest()
+    eh.add_props({"def_hash": digest})
+
+    if old_digest == digest:
+        eh.add_log("Definitions Match, Checking Code", {"old_hash": old_digest, "new_hash": digest})
+        eh.add_op("compare_etags") #Should hash definition
 
     else:
-        eh.add_log("Definitions Don't Match, Deploying", {"old": old_rendef, "new": new_rendef})
+        eh.add_log("Definitions Don't Match, Deploying", {"old": old_digest, "new": digest})
 
 @ext(handler=eh, op="compare_etags")
 def compare_etags(event, bucket, object_name, trust_level):
@@ -685,7 +707,40 @@ def run_codebuild_build(codebuild_build_def):
         progress_end=45
     )
 
+@ext(handler=eh, op="setup_ecr_repo")
+def setup_ecr_repo(prev_state, function_name, cdef, op):
+    ecr_repo_def = cdef.get(ECR_REPO_KEY, {})
 
+    eh.invoke_extension(
+        arn=lambda_env("ecr_repo_lambda_name"),
+        component_def=ecr_repo_def, 
+        child_key=ECR_REPO_KEY, progress_start=25, 
+        progress_end=30
+    )
+
+@ext(handler=eh, op="setup_ecr_image")
+def setup_ecr_image(prev_state, function_name, cdef, bucket, object_name, runtime, op):
+    key = "ECR Image"
+    print(eh.props)
+    print(eh.links)
+
+    ecr_image_def = cdef.get(key, {})
+
+    component_def = {
+        "repo_name": eh.props[ECR_REPO_KEY]["name"] \
+            if op == "upsert" else prev_state["props"][ECR_REPO_KEY]["name"]
+    }
+    if cdef.get("login_to_dockerhub"):
+        component_def["login_to_dockerhub"] = True
+
+    component_def.update(ecr_image_def)
+
+    eh.invoke_extension(
+        arn=lambda_env("ecr_image_lambda_name"),
+        component_def=component_def, object_name=object_name,
+        child_key=key, progress_start=30, 
+        progress_end=45
+    )
 
 @ext(handler=eh, op="create_function")
 def create_function(function_name, desired_config, bucket, object_name, tags, publish_version):
@@ -696,11 +751,21 @@ def create_function(function_name, desired_config, bucket, object_name, tags, pu
         eh.retry_error(message, 20)
 
     try:
+        print(eh.props)
         create_params = desired_config
-        create_params["Code"] = {
-                "S3Bucket": bucket,
-                "S3Key": object_name
+        if not eh.props.get("ECR Image"):
+            create_params["Code"] = {
+                    "S3Bucket": bucket,
+                    "S3Key": object_name
+                }
+        else:
+            create_params["Code"] = {
+                "ImageUri": eh.props["ECR Image"]["uri"]
             }
+            create_params["PackageType"] = "Image"
+            create_params["Runtime"] = None
+            create_params['Handler'] = None
+
         create_params['Tags'] = tags
         if publish_version:
             create_params['Publish'] = True
@@ -752,8 +817,9 @@ def update_function_configuration(function_name, desired_config):
     except ClientError as e:
         handle_common_errors(e, eh, "Config Update Failed", 60, [
             'PreconditionFailed', 'CodeVerificationFailed', 
-            'InvalidCodeSignature', 'CodeSigningConfigNotFound'
-            ])
+            'InvalidCodeSignature', 'CodeSigningConfigNotFound',
+            "InvalidParameterValueException"
+        ])
 
 
 @ext(handler=eh, op="update_function_code")
@@ -762,10 +828,18 @@ def update_function_code(function_name, bucket, object_name, publish_version):
 
     params = {
         "FunctionName": function_name,
-        "S3Bucket": bucket,
-        "S3Key": object_name,
         "Publish": publish_version
     }
+
+    if not eh.props.get("ECR Image"):
+        params.update({
+            "S3Bucket": bucket,
+            "S3Key": object_name
+        })
+    else:
+        params.update({
+            "ImageUri": eh.props["ECR Image"]["uri"]
+        })
 
     try:
         lambda_response = lambda_client.update_function_code(**params)
