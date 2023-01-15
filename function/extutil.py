@@ -337,9 +337,9 @@ class ExtensionHandler:
 
     def add_props(self, props):
         #Restrict prop key names to alphanumeric, underscore, and hyphen
-        invalid_prop_keys = list(filter(lambda x: (not re.match(NAME_REGEX, x)), props.keys()))
-        if invalid_prop_keys:
-            raise Exception(f"Invalid Prop Key Names = {invalid_prop_keys}")
+        # invalid_prop_keys = list(filter(lambda x: (not re.match(NAME_REGEX, x)), props.keys()))
+        # if invalid_prop_keys:
+        #     raise Exception(f"Invalid Prop Key Names = {invalid_prop_keys}")
         self.props.update(props)
         return self.props
 
