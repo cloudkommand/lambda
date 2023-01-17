@@ -522,9 +522,10 @@ def publish_layer_version(layer_name, cdef, bucket, object_name, region, runtime
             "version_arn": lambda_response['LayerVersionArn'],
             "version": lambda_response['Version']
         })
+        print(eh.props)
         eh.add_links({"Layer": gen_layer_link(layer_name, region)})
         if lambda_response['Version'] != 1:
-            eh.add_op("remove_layer_versions", {"name": layer_name, "version": lambda_response['Version']})
+            eh.add_op("remove_layer_versions", {"name": layer_name, "safe_version": lambda_response['Version']})
 
     except ClientError as e:
         print(str(e))
@@ -541,7 +542,8 @@ def remove_layer_versions(op):
     lambda_client = boto3.client("lambda")
 
     layer_name = eh.ops['remove_layer_versions']['name']
-    safe_version = eh.ops['remove_layer_versions'].get("version")
+    safe_version = eh.ops['remove_layer_versions'].get("safe_version")
+    print(eh.props)
 
     try:
         first = True
