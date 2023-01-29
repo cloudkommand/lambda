@@ -1079,7 +1079,7 @@ def get_resource_policy(function_name, alias_name, resource_permissions):
             return
 
     desired_statement_ids = set(map(lambda x: x['StatementId'], resource_permissions))
-
+    print("Desired Statement IDs: ", desired_statement_ids)
     #Check statement IDs, which should be unique
     if resource_policy_response.get("Policy"):
         policy = json.loads(resource_policy_response["Policy"])
@@ -1087,7 +1087,7 @@ def get_resource_policy(function_name, alias_name, resource_permissions):
     else:
         policy = {}
     current_statement_ids = set(map(lambda x: x['Sid'], policy.get("Statement", [])))
-    
+    print("Current Statement IDs: ", current_statement_ids)
     if desired_statement_ids != current_statement_ids:
         remove_statement_ids = current_statement_ids - desired_statement_ids
         add_statement_ids = desired_statement_ids - current_statement_ids
