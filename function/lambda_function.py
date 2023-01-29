@@ -101,6 +101,8 @@ def lambda_handler(event, context):
             (function_name if len(function_name) < 40 else function_name[:20])
         
         allowed_invoke_arns = cdef.get("allowed_invoke_arns") or []
+        if not isinstance(allowed_invoke_arns, list):
+            allowed_invoke_arns = [allowed_invoke_arns]
         resource_permissions = cdef.get("resource_permissions") or []
         for arn in allowed_invoke_arns:
             dict_to_add = remove_none_attributes({
