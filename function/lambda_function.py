@@ -134,6 +134,7 @@ def lambda_handler(event, context):
             eh.add_op("get_alias")
             eh.add_op("get_function_reserved_concurrency")
             eh.add_op("get_function_provisioned_concurrency")
+            eh.add_op("get_resource_policy")
             if is_custom_container:
                 eh.add_op("setup_ecr_repo")
                 eh.add_op("setup_ecr_image")
