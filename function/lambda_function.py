@@ -23,6 +23,7 @@ ALLOWED_RUNTIMES = [
 ]
 
 ECR_REPO_KEY = "ECR Repo"
+ALIAS_KEY = "Alias"
 
 
 lambda_client = boto3.client("lambda")
@@ -96,9 +97,24 @@ def lambda_handler(event, context):
                 eh.perm_error("Invalid layer parameters", 0)
 
         function_name = cdef.get("name") or component_safe_name(project_code, repo_id, cname)
-        alias_name = prev_state.get("props", {}).get("Alias", {}).get("name") or \
+        alias_name = prev_state.get("props", {}).get(ALIAS_KEY, {}).get("name") or \
             (function_name if len(function_name) < 40 else function_name[:20])
         
+        allowed_invoke_arns = cdef.get("allowed_invoke_arns") or []
+        if not isinstance(allowed_invoke_arns, list):
+            allowed_invoke_arns = [allowed_invoke_arns]
+        resource_permissions = cdef.get("resource_permissions") or []
+        for arn in allowed_invoke_arns:
+            dict_to_add = remove_none_attributes({
+                "Action": "lambda:InvokeFunction",
+                "Principal": f'{arn.split(":")[2]}.amazonaws.com',
+                "SourceArn": arn,
+                "SourceAccount": account_number if arn.split(":")[2] == "s3" else None,
+            })
+            statement_id = hashlib.md5(json.dumps(dict_to_add, sort_keys=True).encode()).hexdigest()
+            dict_to_add["StatementId"] = statement_id
+            resource_permissions.append(dict_to_add)
+
         remove_logs_on_delete = cdef.get("remove_logs_on_delete") or False
 
         pass_back_data = event.get("pass_back_data", {})
@@ -118,6 +134,7 @@ def lambda_handler(event, context):
             eh.add_op("get_alias")
             eh.add_op("get_function_reserved_concurrency")
             eh.add_op("get_function_provisioned_concurrency")
+            eh.add_op("get_resource_policy")
             if is_custom_container:
                 eh.add_op("setup_ecr_repo")
                 eh.add_op("setup_ecr_image")
@@ -195,6 +212,9 @@ def lambda_handler(event, context):
         put_function_provisioned_concurrency(function_name, alias_name, provisioned_concurrency)
         delete_function_provisioned_concurrency(function_name, alias_name)
         wait_for_provisioned_concurrency(function_name, alias_name)
+        get_resource_policy(function_name, alias_name, resource_permissions)
+        add_resource_policy_statements(function_name, alias_name, resource_permissions)
+        remove_resource_policy_statements(function_name, alias_name)
         remove_tags(function_arn)
         add_tags(function_arn)
         remove_function()
@@ -874,7 +894,7 @@ def get_alias(function_name, alias_name):
         
         else:
             eh.add_props({
-                "Alias": {
+                ALIAS_KEY: {
                     "arn": alias_response["AliasArn"],
                     "name": alias_name
                 }
@@ -898,7 +918,7 @@ def create_alias(function_name, alias_name):
             FunctionVersion=function_version
         )
         eh.add_props({
-            "Alias": {
+            ALIAS_KEY: {
                 "arn": alias_response["AliasArn"],
                 "name": alias_name
             }
@@ -918,7 +938,7 @@ def update_alias(function_name, alias_name):
             FunctionVersion=function_version
         )
         eh.add_props({
-            "Alias": {
+            ALIAS_KEY: {
                 "arn": alias_response["AliasArn"],
                 "name": alias_name
             }
@@ -1041,6 +1061,80 @@ def wait_for_provisioned_concurrency(function_name, alias_name):
             eh.add_log("Provisioned Concurrency Updated", provisioned_concurrency_response)
     except ClientError as e:
         handle_common_errors(e, eh, "Get Provisioned Concurrency Failed", 90, ['InvalidParameterValueException'])
+
+@ext(handler=eh, op="get_resource_policy")
+def get_resource_policy(function_name, alias_name, resource_permissions):
+    try:
+        resource_policy_response = lambda_client.get_policy(
+            FunctionName=function_name,
+            Qualifier=alias_name
+        )
+        eh.add_log("Got Resource Policy", resource_policy_response)
+    except ClientError as e:
+        if e.response['Error']['Code'] == 'ResourceNotFoundException':
+            eh.add_log("Got Resource Policy", {"none": True})
+            resource_policy_response = {}
+        else:
+            handle_common_errors(e, eh, "Get Resource Policy Failed", 91, ['InvalidParameterValueException'])
+            return
+
+    desired_statement_ids = set(map(lambda x: x['StatementId'], resource_permissions))
+    print("Desired Statement IDs: ", desired_statement_ids)
+    #Check statement IDs, which should be unique
+    if resource_policy_response.get("Policy"):
+        policy = json.loads(resource_policy_response["Policy"])
+
+    else:
+        policy = {}
+    current_statement_ids = set(map(lambda x: x['Sid'], policy.get("Statement", [])))
+    print("Current Statement IDs: ", current_statement_ids)
+    if desired_statement_ids != current_statement_ids:
+        remove_statement_ids = current_statement_ids - desired_statement_ids
+        add_statement_ids = desired_statement_ids - current_statement_ids
+
+        if remove_statement_ids:
+            eh.add_op("remove_resource_policy_statements", list(remove_statement_ids))
+        if add_statement_ids:
+            eh.add_op("add_resource_policy_statements", list(add_statement_ids))
+    else:
+        eh.add_log("Resource Policy Matches Desired", resource_policy_response)
+
+@ext(handler=eh, op="add_resource_policy_statements")
+def add_resource_policy_statements(function_name, alias_name, resource_permissions):
+    to_add_ids = eh.ops["add_resource_policy_statements"]
+    to_add = list(filter(lambda x: x['StatementId'] in to_add_ids, resource_permissions))
+
+    for statement in to_add:
+        try:
+            params = {
+                "FunctionName": function_name,
+                "Qualifier": alias_name,
+                **statement
+            }
+            resource_policy_response = lambda_client.add_permission(**params)
+            eh.add_log("Added Resource Policy Statement", resource_policy_response)
+            eh.ops["add_resource_policy_statements"].remove(statement["StatementId"])
+        except ClientError as e:
+            handle_common_errors(e, eh, "Add Resource Policy Statement Failed", 92, ['InvalidParameterValueException'])
+            return
+
+@ext(handler=eh, op="remove_resource_policy_statements")
+def remove_resource_policy_statements(function_name, alias_name):
+    to_remove_ids = eh.ops["remove_resource_policy_statements"]
+
+    for statement_id in to_remove_ids:
+        try:
+            params = {
+                "FunctionName": function_name,
+                "Qualifier": alias_name,
+                "StatementId": statement_id
+            }
+            resource_policy_response = lambda_client.remove_permission(**params)
+            eh.add_log("Removed Resource Policy Statement", resource_policy_response)
+            eh.ops["remove_resource_policy_statements"].remove(statement_id)
+        except ClientError as e:
+            handle_common_errors(e, eh, "Remove Resource Policy Statement Failed", 93, ['InvalidParameterValueException'])
+            return
 
 @ext(handler=eh, op="gen_props")
 def gen_props(function_name, region):
