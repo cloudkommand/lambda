@@ -115,6 +115,8 @@ def lambda_handler(event, context):
             dict_to_add["StatementId"] = statement_id
             resource_permissions.append(dict_to_add)
 
+        not_managed_resource_permission_statement_ids = cdef.get("not_managed_resource_permission_statement_ids") or ["APIGATEWAYINVOKEFUNCTION"]
+
         remove_logs_on_delete = cdef.get("remove_logs_on_delete") or False
 
         pass_back_data = event.get("pass_back_data", {})
@@ -135,6 +137,7 @@ def lambda_handler(event, context):
             eh.add_op("get_function_reserved_concurrency")
             eh.add_op("get_function_provisioned_concurrency")
             eh.add_op("get_resource_policy")
+            eh.add_op("get_function_resource_policy")
             if is_custom_container:
                 eh.add_op("setup_ecr_repo")
                 eh.add_op("setup_ecr_image")
@@ -212,9 +215,12 @@ def lambda_handler(event, context):
         put_function_provisioned_concurrency(function_name, alias_name, provisioned_concurrency)
         delete_function_provisioned_concurrency(function_name, alias_name)
         wait_for_provisioned_concurrency(function_name, alias_name)
-        get_resource_policy(function_name, alias_name, resource_permissions)
+        get_resource_policy(function_name, alias_name, resource_permissions, not_managed_resource_permission_statement_ids)
         add_resource_policy_statements(function_name, alias_name, resource_permissions)
         remove_resource_policy_statements(function_name, alias_name)
+        get_function_resource_policy(function_name, resource_permissions, not_managed_resource_permission_statement_ids)
+        add_function_resource_policy_statements(function_name, resource_permissions)
+        remove_function_resource_policy_statements(function_name)
         remove_tags(function_arn)
         add_tags(function_arn)
         remove_function()
@@ -1063,7 +1069,7 @@ def wait_for_provisioned_concurrency(function_name, alias_name):
         handle_common_errors(e, eh, "Get Provisioned Concurrency Failed", 90, ['InvalidParameterValueException'])
 
 @ext(handler=eh, op="get_resource_policy")
-def get_resource_policy(function_name, alias_name, resource_permissions):
+def get_resource_policy(function_name, alias_name, resource_permissions, not_managed_statement_ids):
     try:
         resource_policy_response = lambda_client.get_policy(
             FunctionName=function_name,
@@ -1086,7 +1092,11 @@ def get_resource_policy(function_name, alias_name, resource_permissions):
 
     else:
         policy = {}
-    current_statement_ids = set(map(lambda x: x['Sid'], policy.get("Statement", [])))
+    current_statement_ids = set(
+        filter(
+            lambda x: x not in not_managed_statement_ids, 
+            map(lambda x: x['Sid'], policy.get("Statement", [])
+        )))
     print("Current Statement IDs: ", current_statement_ids)
     if desired_statement_ids != current_statement_ids:
         remove_statement_ids = current_statement_ids - desired_statement_ids
@@ -1097,7 +1107,7 @@ def get_resource_policy(function_name, alias_name, resource_permissions):
         if add_statement_ids:
             eh.add_op("add_resource_policy_statements", list(add_statement_ids))
     else:
-        eh.add_log("Resource Policy Matches Desired", resource_policy_response)
+        eh.add_log("Alias Resource Policy Matches Desired", resource_policy_response)
 
 @ext(handler=eh, op="add_resource_policy_statements")
 def add_resource_policy_statements(function_name, alias_name, resource_permissions):
@@ -1135,6 +1145,82 @@ def remove_resource_policy_statements(function_name, alias_name):
         except ClientError as e:
             handle_common_errors(e, eh, "Remove Resource Policy Statement Failed", 93, ['InvalidParameterValueException'])
             return
+
+@ext(handler=eh, op="get_function_resource_policy")
+def get_function_resource_policy(function_name, resource_permissions, not_managed_statement_ids):
+    try:
+        resource_policy_response = lambda_client.get_policy(
+            FunctionName=function_name
+        )
+        eh.add_log("Got Resource Policy", resource_policy_response)
+    except ClientError as e:
+        if e.response['Error']['Code'] == 'ResourceNotFoundException':
+            eh.add_log("Got Resource Policy", {"none": True})
+            resource_policy_response = {}
+        else:
+            handle_common_errors(e, eh, "Get Resource Policy Failed", 91, ['InvalidParameterValueException'])
+            return
+
+    desired_statement_ids = set(map(lambda x: x['StatementId'], resource_permissions))
+    print("Desired Statement IDs: ", desired_statement_ids)
+    #Check statement IDs, which should be unique
+    if resource_policy_response.get("Policy"):
+        policy = json.loads(resource_policy_response["Policy"])
+
+    else:
+        policy = {}
+    current_statement_ids = set(
+        filter(
+            lambda x: x not in not_managed_statement_ids, 
+            map(lambda x: x['Sid'], policy.get("Statement", [])
+        )))
+    print("Current Statement IDs: ", current_statement_ids)
+    if desired_statement_ids != current_statement_ids:
+        remove_statement_ids = current_statement_ids - desired_statement_ids
+        add_statement_ids = desired_statement_ids - current_statement_ids
+
+        if remove_statement_ids:
+            eh.add_op("remove_function_resource_policy_statements", list(remove_statement_ids))
+        if add_statement_ids:
+            eh.add_op("add_function_resource_policy_statements", list(add_statement_ids))
+    else:
+        eh.add_log("Function Resource Policy Matches Desired", resource_policy_response)
+
+@ext(handler=eh, op="add_function_resource_policy_statements")
+def add_function_resource_policy_statements(function_name, resource_permissions):
+    to_add_ids = eh.ops["add_function_resource_policy_statements"]
+    to_add = list(filter(lambda x: x['StatementId'] in to_add_ids, resource_permissions))
+
+    for statement in to_add:
+        try:
+            params = {
+                "FunctionName": function_name,
+                **statement
+            }
+            resource_policy_response = lambda_client.add_permission(**params)
+            eh.add_log("Added Function Resource Policy Statement", resource_policy_response)
+            eh.ops["add_function_resource_policy_statements"].remove(statement["StatementId"])
+        except ClientError as e:
+            handle_common_errors(e, eh, "Add Resource Policy Statement Failed", 92, ['InvalidParameterValueException'])
+            return
+
+@ext(handler=eh, op="remove_function_resource_policy_statements")
+def remove_function_resource_policy_statements(function_name):
+    to_remove_ids = eh.ops["remove_function_resource_policy_statements"]
+
+    for statement_id in to_remove_ids:
+        try:
+            params = {
+                "FunctionName": function_name,
+                "StatementId": statement_id
+            }
+            resource_policy_response = lambda_client.remove_permission(**params)
+            eh.add_log("Removed Function Resource Policy Statement", resource_policy_response)
+            eh.ops["remove_function_resource_policy_statements"].remove(statement_id)
+        except ClientError as e:
+            handle_common_errors(e, eh, "Remove Resource Policy Statement Failed", 93, ['InvalidParameterValueException'])
+            return
+
 
 @ext(handler=eh, op="gen_props")
 def gen_props(function_name, region):
