@@ -84,6 +84,11 @@ def lambda_handler(event, context):
         role_description = "Created by CK for the Lambda function of the same name"
         role_tags = tags if cdef.get("also_tag_role") else cdef.get("role_tags")
 
+        vpc_config = remove_none_attributes({
+            "SubnetIds": cdef.get("subnet_ids"),
+            "SecurityGroupIds": cdef.get("security_group_ids")
+        }) if (cdef.get("subnet_ids") or cdef.get("security_group_ids")) else None
+
         codebuild_project_override_def = cdef.get("Codebuild Project") or {} #For codebuild project overrides
         codebuild_build_override_def = cdef.get("Codebuild Build") or {} #For codebuild build overrides
 
@@ -175,6 +180,7 @@ def lambda_handler(event, context):
             "Environment": environment,
             "Runtime": runtime,
             "TracingConfig": tracing_config,
+            "VpcConfig": vpc_config,
             "Layers": layer_arns or None
         })
 
