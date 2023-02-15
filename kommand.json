@@ -24,6 +24,7 @@
                         "ec2:DescribeVpcs",
                         "ec2:DescribeSubnets",
                         "ec2:DescribeSecurityGroups",
+                        "ec2:CreateNetworkInterface",
                         "lambda:CreateFunction",
                         "lambda:DeleteFunction",
                         "lambda:GetFunction",
