@@ -84,10 +84,16 @@ def lambda_handler(event, context):
         role_description = "Created by CK for the Lambda function of the same name"
         role_tags = tags if cdef.get("also_tag_role") else cdef.get("role_tags")
 
+        subnet_ids = cdef.get("subnet_ids")
+        security_group_ids = cdef.get("security_group_ids")
+        if (subnet_ids and not security_group_ids) or (security_group_ids and not subnet_ids):
+            eh.declare_return(200, 0, error_code="Must have both subnet_ids and security_group_ids or neither")
+            return eh.finish()
+
         vpc_config = remove_none_attributes({
-            "SubnetIds": cdef.get("subnet_ids"),
-            "SecurityGroupIds": cdef.get("security_group_ids")
-        }) if (cdef.get("subnet_ids") or cdef.get("security_group_ids")) else None
+            "SubnetIds": subnet_ids,
+            "SecurityGroupIds": security_group_ids
+        }) if (subnet_ids or security_group_ids) else None
 
         codebuild_project_override_def = cdef.get("Codebuild Project") or {} #For codebuild project overrides
         codebuild_build_override_def = cdef.get("Codebuild Build") or {} #For codebuild build overrides
