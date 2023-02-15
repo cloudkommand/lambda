@@ -21,6 +21,9 @@
                     "Effect": "Allow",
                     "Action": [
                         "iam:PassRole",
+                        "ec2:DescribeVpcs",
+                        "ec2:DescribeSubnets",
+                        "ec2:DescribeSecurityGroups",
                         "lambda:CreateFunction",
                         "lambda:DeleteFunction",
                         "lambda:GetFunction",
