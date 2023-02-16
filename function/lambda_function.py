@@ -84,8 +84,8 @@ def lambda_handler(event, context):
         role_description = "Created by CK for the Lambda function of the same name"
         role_tags = tags if cdef.get("also_tag_role") else cdef.get("role_tags")
 
-        subnet_ids = cdef.get("subnet_ids")
-        security_group_ids = cdef.get("security_group_ids")
+        subnet_ids = cdef.get("subnet_ids") or []
+        security_group_ids = cdef.get("security_group_ids") or []
         if (subnet_ids and not security_group_ids) or (security_group_ids and not subnet_ids):
             eh.declare_return(200, 0, error_code="Must have both subnet_ids and security_group_ids or neither")
             return eh.finish()
@@ -385,6 +385,9 @@ def get_function(prev_state, function_name, desired_config, tags, bucket, object
         eh.add_props({"arn": function_arn})
 
         for k in config_keys:
+            if k == "VpcConfig":
+                print(f"current_config.get(k) = {current_config.get(k)}")
+                print(f"desired_config.get(k) = {desired_config.get(k)}")
             if k == "Layers":
                 continue
             elif desired_config.get(k) != current_config.get(k):
