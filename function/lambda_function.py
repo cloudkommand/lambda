@@ -875,7 +875,7 @@ def update_function_configuration(function_name, desired_config):
 
 
 @ext(handler=eh, op="update_function_code")
-def update_function_code(function_name, bucket, object_name, publish_version):
+def update_function_code(function_name, bucket, object_name, publish_version, vpc_config):
     # lambda_client = boto3.client("lambda")
 
     params = {
@@ -905,10 +905,21 @@ def update_function_code(function_name, bucket, object_name, publish_version):
         eh.add_log("Updated Function Code", lambda_response)
 
     except ClientError as e:
-        handle_common_errors(e, eh, "Code Update Failed", 75, [
-            'InvalidParameterValue', 'CodeStorageExceeded', 
-            'PreconditionFailed', 'CodeVerificationFailed', 
-            'InvalidCodeSignature', 'CodeSigningConfigNotFound'
+        if vpc_config.get("SubnetIds"):
+            if e.response['Error']['Code'] == 'ResourceConflictException':
+                eh.add_log("Waiting for Lambda in VPC", {"Error": str(e)})
+                eh.retry_error(random_id(), 75, callback_sec=8)
+            else:
+                handle_common_errors(e, eh, "Code Update Failed", 75, [
+                    'InvalidParameterValue', 'CodeStorageExceeded', 
+                    'PreconditionFailed', 'CodeVerificationFailed', 
+                    'InvalidCodeSignature', 'CodeSigningConfigNotFound'
+                ])
+        else:
+            handle_common_errors(e, eh, "Code Update Failed", 75, [
+                'InvalidParameterValue', 'CodeStorageExceeded', 
+                'PreconditionFailed', 'CodeVerificationFailed', 
+                'InvalidCodeSignature', 'CodeSigningConfigNotFound'
             ])
 
 @ext(handler=eh, op="get_alias")
