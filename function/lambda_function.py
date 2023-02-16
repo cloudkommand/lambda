@@ -93,7 +93,7 @@ def lambda_handler(event, context):
         vpc_config = remove_none_attributes({
             "SubnetIds": subnet_ids,
             "SecurityGroupIds": security_group_ids
-        }) if (subnet_ids or security_group_ids) else None
+        }) if (subnet_ids is not None) or (security_group_ids is not None) else None
 
         codebuild_project_override_def = cdef.get("Codebuild Project") or {} #For codebuild project overrides
         codebuild_build_override_def = cdef.get("Codebuild Build") or {} #For codebuild build overrides
