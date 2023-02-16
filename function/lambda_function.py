@@ -84,6 +84,17 @@ def lambda_handler(event, context):
         role_description = "Created by CK for the Lambda function of the same name"
         role_tags = tags if cdef.get("also_tag_role") else cdef.get("role_tags")
 
+        subnet_ids = cdef.get("subnet_ids") or []
+        security_group_ids = cdef.get("security_group_ids") or []
+        if (subnet_ids and not security_group_ids) or (security_group_ids and not subnet_ids):
+            eh.declare_return(200, 0, error_code="Must have both subnet_ids and security_group_ids or neither")
+            return eh.finish()
+
+        vpc_config = remove_none_attributes({
+            "SubnetIds": subnet_ids,
+            "SecurityGroupIds": security_group_ids
+        }) if (subnet_ids is not None) or (security_group_ids is not None) else None
+
         codebuild_project_override_def = cdef.get("Codebuild Project") or {} #For codebuild project overrides
         codebuild_build_override_def = cdef.get("Codebuild Build") or {} #For codebuild build overrides
 
@@ -165,7 +176,7 @@ def lambda_handler(event, context):
 
         upsert_role(prev_state, policies, policy_arns, role_description, role_tags)
 
-        desired_config = remove_none_attributes({
+        desired_config = {
             "FunctionName": function_name,
             "Description": description,
             "Handler": handler,
@@ -175,8 +186,13 @@ def lambda_handler(event, context):
             "Environment": environment,
             "Runtime": runtime,
             "TracingConfig": tracing_config,
+            "VpcConfig": vpc_config,
             "Layers": layer_arns or None
-        })
+        }
+
+        config_keys = list(desired_config.keys())
+
+        desired_config = remove_none_attributes(desired_config)
 
         print(f"desired_config: {desired_config}")
 
@@ -200,10 +216,10 @@ def lambda_handler(event, context):
         setup_ecr_image(prev_state, function_name, cdef, bucket, object_name, runtime, op)
 
         #Then we can deploy the lambda
-        get_function(prev_state, function_name, desired_config, tags, bucket, eh.state.get("new_object_name") or object_name, trust_level, publish_version, remove_logs_on_delete) #Moved here so that we can do object checks
+        get_function(prev_state, function_name, desired_config, tags, bucket, eh.state.get("new_object_name") or object_name, trust_level, publish_version, remove_logs_on_delete, config_keys) #Moved here so that we can do object checks
         create_function(function_name, desired_config, bucket, eh.state.get("new_object_name") or object_name, tags, publish_version)
         update_function_configuration(function_name, desired_config)
-        update_function_code(function_name, bucket, eh.state.get("new_object_name") or object_name, publish_version)
+        update_function_code(function_name, bucket, eh.state.get("new_object_name") or object_name, publish_version, vpc_config)
         get_alias(function_name, alias_name)
         create_alias(function_name, alias_name)
         update_alias(function_name, alias_name)
@@ -344,7 +360,7 @@ def remove_role(policies, policy_arns, role_description, role_tags):
     
 
 @ext(handler=eh, op="get_lambda")
-def get_function(prev_state, function_name, desired_config, tags, bucket, object_name, trust_level, publish_version, remove_logs_on_delete):
+def get_function(prev_state, function_name, desired_config, tags, bucket, object_name, trust_level, publish_version, remove_logs_on_delete, config_keys):
     # lambda_client = boto3.client("lambda")
 
     if prev_state and prev_state.get("props", {}).get("name"):
@@ -368,10 +384,20 @@ def get_function(prev_state, function_name, desired_config, tags, bucket, object
         function_arn = function.get("FunctionArn")
         eh.add_props({"arn": function_arn})
 
-        for k, v in desired_config.items():
+        for k in config_keys:
+            if k == "VpcConfig":
+                print(f"current_config.get(k) = {current_config.get(k)}")
+                print(f"desired_config.get(k) = {desired_config.get(k)}")
             if k == "Layers":
                 continue
-            elif v != current_config.get(k):
+            elif k == "VpcConfig":
+                # For some reason vpcId is included in the response, but not in the request
+                for k1, v1 in desired_config.get(k, {}).items():
+                    if current_config.get(k, {}).get(k1) != v1:
+                        eh.add_log("Desired Config Doesn't Match", {"current": current_config, "desired": desired_config})
+                        eh.add_op("update_function_configuration")
+                        break
+            elif desired_config.get(k) != current_config.get(k):
                 eh.add_log("Desired Config Doesn't Match", {"current": current_config, "desired": desired_config})
                 eh.add_op("update_function_configuration")
 
@@ -849,7 +875,7 @@ def update_function_configuration(function_name, desired_config):
 
 
 @ext(handler=eh, op="update_function_code")
-def update_function_code(function_name, bucket, object_name, publish_version):
+def update_function_code(function_name, bucket, object_name, publish_version, vpc_config):
     # lambda_client = boto3.client("lambda")
 
     params = {
@@ -879,10 +905,21 @@ def update_function_code(function_name, bucket, object_name, publish_version):
         eh.add_log("Updated Function Code", lambda_response)
 
     except ClientError as e:
-        handle_common_errors(e, eh, "Code Update Failed", 75, [
-            'InvalidParameterValue', 'CodeStorageExceeded', 
-            'PreconditionFailed', 'CodeVerificationFailed', 
-            'InvalidCodeSignature', 'CodeSigningConfigNotFound'
+        if vpc_config.get("SubnetIds"):
+            if e.response['Error']['Code'] == 'ResourceConflictException':
+                eh.add_log("Waiting for Lambda in VPC", {"Error": str(e)})
+                eh.retry_error(random_id(), 75, callback_sec=8)
+            else:
+                handle_common_errors(e, eh, "Code Update Failed", 75, [
+                    'InvalidParameterValue', 'CodeStorageExceeded', 
+                    'PreconditionFailed', 'CodeVerificationFailed', 
+                    'InvalidCodeSignature', 'CodeSigningConfigNotFound'
+                ])
+        else:
+            handle_common_errors(e, eh, "Code Update Failed", 75, [
+                'InvalidParameterValue', 'CodeStorageExceeded', 
+                'PreconditionFailed', 'CodeVerificationFailed', 
+                'InvalidCodeSignature', 'CodeSigningConfigNotFound'
             ])
 
 @ext(handler=eh, op="get_alias")
