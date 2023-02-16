@@ -219,7 +219,7 @@ def lambda_handler(event, context):
         get_function(prev_state, function_name, desired_config, tags, bucket, eh.state.get("new_object_name") or object_name, trust_level, publish_version, remove_logs_on_delete, config_keys) #Moved here so that we can do object checks
         create_function(function_name, desired_config, bucket, eh.state.get("new_object_name") or object_name, tags, publish_version)
         update_function_configuration(function_name, desired_config)
-        update_function_code(function_name, bucket, eh.state.get("new_object_name") or object_name, publish_version)
+        update_function_code(function_name, bucket, eh.state.get("new_object_name") or object_name, publish_version, vpc_config)
         get_alias(function_name, alias_name)
         create_alias(function_name, alias_name)
         update_alias(function_name, alias_name)
