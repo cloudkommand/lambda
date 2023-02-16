@@ -390,6 +390,13 @@ def get_function(prev_state, function_name, desired_config, tags, bucket, object
                 print(f"desired_config.get(k) = {desired_config.get(k)}")
             if k == "Layers":
                 continue
+            elif k == "VpcConfig":
+                # For some reason vpcId is included in the response, but not in the request
+                for k1, v1 in desired_config.get(k, {}).items():
+                    if current_config.get(k, {}).get(k1) != v1:
+                        eh.add_log("Desired Config Doesn't Match", {"current": current_config, "desired": desired_config})
+                        eh.add_op("update_function_configuration")
+                        break
             elif desired_config.get(k) != current_config.get(k):
                 eh.add_log("Desired Config Doesn't Match", {"current": current_config, "desired": desired_config})
                 eh.add_op("update_function_configuration")
