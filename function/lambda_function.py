@@ -176,7 +176,7 @@ def lambda_handler(event, context):
 
         upsert_role(prev_state, policies, policy_arns, role_description, role_tags)
 
-        desired_config = remove_none_attributes({
+        desired_config = {
             "FunctionName": function_name,
             "Description": description,
             "Handler": handler,
@@ -188,7 +188,11 @@ def lambda_handler(event, context):
             "TracingConfig": tracing_config,
             "VpcConfig": vpc_config,
             "Layers": layer_arns or None
-        })
+        }
+
+        config_keys = list(desired_config.keys())
+
+        desired_config = remove_none_attributes(desired_config)
 
         print(f"desired_config: {desired_config}")
 
@@ -212,7 +216,7 @@ def lambda_handler(event, context):
         setup_ecr_image(prev_state, function_name, cdef, bucket, object_name, runtime, op)
 
         #Then we can deploy the lambda
-        get_function(prev_state, function_name, desired_config, tags, bucket, eh.state.get("new_object_name") or object_name, trust_level, publish_version, remove_logs_on_delete) #Moved here so that we can do object checks
+        get_function(prev_state, function_name, desired_config, tags, bucket, eh.state.get("new_object_name") or object_name, trust_level, publish_version, remove_logs_on_delete, config_keys) #Moved here so that we can do object checks
         create_function(function_name, desired_config, bucket, eh.state.get("new_object_name") or object_name, tags, publish_version)
         update_function_configuration(function_name, desired_config)
         update_function_code(function_name, bucket, eh.state.get("new_object_name") or object_name, publish_version)
@@ -356,7 +360,7 @@ def remove_role(policies, policy_arns, role_description, role_tags):
     
 
 @ext(handler=eh, op="get_lambda")
-def get_function(prev_state, function_name, desired_config, tags, bucket, object_name, trust_level, publish_version, remove_logs_on_delete):
+def get_function(prev_state, function_name, desired_config, tags, bucket, object_name, trust_level, publish_version, remove_logs_on_delete, config_keys):
     # lambda_client = boto3.client("lambda")
 
     if prev_state and prev_state.get("props", {}).get("name"):
@@ -380,10 +384,10 @@ def get_function(prev_state, function_name, desired_config, tags, bucket, object
         function_arn = function.get("FunctionArn")
         eh.add_props({"arn": function_arn})
 
-        for k, v in desired_config.items():
+        for k in config_keys:
             if k == "Layers":
                 continue
-            elif v != current_config.get(k):
+            elif desired_config.get(k) != current_config.get(k):
                 eh.add_log("Desired Config Doesn't Match", {"current": current_config, "desired": desired_config})
                 eh.add_op("update_function_configuration")
 
