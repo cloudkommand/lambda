@@ -391,7 +391,6 @@
                     "Sid": "Vis",
                     "Effect": "Allow",
                     "Action": [
-                        "iam:PassRole",
                         "lambda:GetFunction",
                         "lambda:CreateEventSourceMapping",
                         "lambda:DeleteEventSourceMapping",
