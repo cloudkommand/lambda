@@ -301,27 +301,34 @@
             "policy": {
                 "Version": "2012-10-17",
                 "Statement": [{
-                    "Sid": "Vis",
-                    "Effect": "Allow",
-                    "Action": [
-                        "iam:PassRole",
-                        "lambda:GetFunction",
-                        "lambda:InvokeFunction",
-                        "lambda:AddLayerVersionPermission",
-                        "lambda:DeleteLayerVersion",
-                        "lambda:GetLayerVersion",
-                        "lambda:ListLayerVersions",
-                        "lambda:ListLayers",
-                        "lambda:PublishLayerVersion",
-                        "lambda:RemoveLayerVersionPermission",
-                        "lambda:TagResource",
-                        "lambda:UntagResource",
-                        "s3:ListBucket",
-                        "s3:GetObject",
-                        "s3:PutObject"
-                    ],
-                    "Resource": "*"
-                }]
+                        "Sid": "Vis",
+                        "Effect": "Allow",
+                        "Action": [
+                            "lambda:GetFunction",
+                            "lambda:InvokeFunction",
+                            "lambda:AddLayerVersionPermission",
+                            "lambda:DeleteLayerVersion",
+                            "lambda:GetLayerVersion",
+                            "lambda:ListLayerVersions",
+                            "lambda:ListLayers",
+                            "lambda:PublishLayerVersion",
+                            "lambda:RemoveLayerVersionPermission",
+                            "lambda:TagResource",
+                            "lambda:UntagResource",
+                            "s3:ListBucket",
+                            "s3:GetObject",
+                            "s3:PutObject"
+                        ],
+                        "Resource": "*"
+                    }, {
+                        "Sid": "PassRole",
+                        "Effect": "Allow",
+                        "Action": [
+                            "iam:PassRole"
+                        ],
+                        "Resource": "@function:props.role_arn"
+                    }
+                ]
             },
             "input": {
                 "type": "object",
