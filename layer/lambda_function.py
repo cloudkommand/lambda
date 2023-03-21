@@ -10,12 +10,20 @@ import traceback
 import zipfile
 import hashlib
 
-ALLOWED_RUNTIMES = ["python3.9", "python3.8", "python3.6", "python3.7", "nodejs14.x", "nodejs12.x", "nodejs10.x", "ruby2.7", "ruby2.5"]
-
-
 from extutil import remove_none_attributes, account_context, ExtensionHandler, ext, \
     current_epoch_time_usec_num, component_safe_name, create_zip, \
     handle_common_errors, random_id, lambda_env
+
+ALLOWED_RUNTIMES = [
+    "python3.9", "python3.8", "python3.7", 
+    "nodejs14.x", "nodejs12.x", "nodejs18.x",
+    "ruby2.7", "nodejs16.x", "go1.x",
+    "dotnet6", "dotnet5.0", "java11",
+    "java8", "java8.al2"
+]
+
+CODEBUILD_PROJECT_KEY = "Codebuild Project"
+CODEBUILD_BUILD_KEY = "Codebuild Build"
 
 eh = ExtensionHandler()
 
@@ -43,8 +51,8 @@ def lambda_handler(event, context):\
         # if requirements_runtime and requirements_runtime not in ALLOWED_RUNTIMES:
         #     eh.perm_error("requirements_runtime invalid", {"runtime": requirements_runtime, "allowed": ALLOWED_RUNTIMES})
         
-        codebuild_project_override_def = cdef.get("Codebuild Project") or {} #For codebuild project overrides
-        codebuild_build_override_def = cdef.get("Codebuild Build") or {} #For codebuild build overrides
+        codebuild_project_override_def = cdef.get(CODEBUILD_PROJECT_KEY) or {} #For codebuild project overrides
+        codebuild_build_override_def = cdef.get(CODEBUILD_BUILD_KEY) or {} #For codebuild build overrides
 
         bucket = event.get("bucket")
         object_name = event.get("s3_object_name")
@@ -75,7 +83,7 @@ def lambda_handler(event, context):\
                 eh.add_op("publish_layer_version")
 
         elif event.get("op") == "delete":
-            if prev_state.get("props", {}).get("Codebuild Project"):
+            if prev_state.get("props", {}).get(CODEBUILD_PROJECT_KEY):
                 eh.add_op("setup_codebuild_project")
             eh.add_op("remove_layer_versions", {"name": layer_name})
 
@@ -420,7 +428,7 @@ def setup_codebuild_project(bucket, object_name, codebuild_def, runtime, op):
     eh.invoke_extension(
         arn=lambda_env("codebuild_project_lambda_name"), 
         component_def=component_def, 
-        child_key="Codebuild Project", progress_start=25, 
+        child_key=CODEBUILD_PROJECT_KEY, progress_start=25, 
         progress_end=30
     )
 
@@ -435,7 +443,7 @@ def run_codebuild_build(codebuild_build_def):
     print(eh.links)
 
     component_def = {
-        "project_name": eh.props["Codebuild Project"]["name"]
+        "project_name": eh.props[CODEBUILD_PROJECT_KEY]["name"]
     }
 
     component_def.update(codebuild_build_def)
@@ -443,7 +451,7 @@ def run_codebuild_build(codebuild_build_def):
     eh.invoke_extension(
         arn=lambda_env("codebuild_build_lambda_name"),
         component_def=component_def, 
-        child_key="Codebuild Build", progress_start=30, 
+        child_key=CODEBUILD_BUILD_KEY, progress_start=30, 
         progress_end=45
     )
 
@@ -607,6 +615,7 @@ def get_default_buildspec_params(runtime):
    
 
 LAMBDA_RUNTIME_TO_CODEBUILD_RUNTIME = {
+    "nodejs18.x": {"nodejs": 18},
     "nodejs16.x": {"nodejs": 16},
     "nodejs14.x": {"nodejs": 14},
     "nodejs12.x": {"nodejs": 12},

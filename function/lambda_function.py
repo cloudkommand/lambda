@@ -17,12 +17,15 @@ from extutil import remove_none_attributes, gen_log, creturn, handle_common_erro
 
 eh = ExtensionHandler()
 ALLOWED_RUNTIMES = [
-    "python3.9", "python3.8", "python3.6", "python3.7", 
-    "nodejs14.x", "nodejs12.x", "nodejs10.x", 
-    "ruby2.7", "nodejs16.x", "go1.x"
+    "python3.9", "python3.8", "python3.7", 
+    "nodejs14.x", "nodejs12.x", "nodejs18.x",
+    "ruby2.7", "nodejs16.x", "go1.x",
+    "dotnet6", "dotnet5.0", "java11",
+    "java8", "java8.al2"
 ]
 
 ECR_REPO_KEY = "ECR Repo"
+ECR_IMAGE_KEY = "ECR Image"
 ALIAS_KEY = "Alias"
 
 
@@ -703,6 +706,8 @@ def setup_codebuild_project(bucket, object_name, codebuild_def, runtime, op):
 
     runtime_version = LAMBDA_RUNTIME_TO_CODEBUILD_RUNTIME[runtime]
     pre_build_commands, build_commands, post_build_commands, buildspec_artifacts = get_default_buildspec_params(runtime)
+    
+    # This really should just use the codebuild project's mapping.
     container_image = CODEBUILD_RUNTIME_TO_IMAGE_MAPPING[
         f"{list(runtime_version.keys())[0]}{list(runtime_version.values())[0]}"
     ]
@@ -772,11 +777,10 @@ def setup_ecr_repo(prev_state, function_name, cdef, op):
 
 @ext(handler=eh, op="setup_ecr_image")
 def setup_ecr_image(prev_state, function_name, cdef, bucket, object_name, runtime, op):
-    key = "ECR Image"
     print(eh.props)
     print(eh.links)
 
-    ecr_image_def = cdef.get(key, {})
+    ecr_image_def = cdef.get(ECR_IMAGE_KEY, {})
 
     component_def = {
         "repo_name": eh.props[ECR_REPO_KEY]["name"] \
@@ -790,7 +794,7 @@ def setup_ecr_image(prev_state, function_name, cdef, bucket, object_name, runtim
     eh.invoke_extension(
         arn=lambda_env("ecr_image_lambda_name"),
         component_def=component_def, object_name=object_name,
-        child_key=key, progress_start=30, 
+        child_key=ECR_IMAGE_KEY, progress_start=30, 
         progress_end=45
     )
 
@@ -1381,6 +1385,8 @@ def get_default_buildspec_params(runtime):
             "echo 'Installing NPM Dependencies'",
             "npm install --production"
         ]
+    
+    # This should really know what the handler is before running this command.
     elif runtime.startswith("go"):
         build_commands = [
             "echo 'Installing Go Dependencies'",
@@ -1396,6 +1402,7 @@ def get_default_buildspec_params(runtime):
         
 
 LAMBDA_RUNTIME_TO_CODEBUILD_RUNTIME = {
+    "nodejs18.x": {"nodejs": 18},
     "nodejs16.x": {"nodejs": 16},
     "nodejs14.x": {"nodejs": 14},
     "nodejs12.x": {"nodejs": 12},
