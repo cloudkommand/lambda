@@ -3,8 +3,9 @@
         "function": {
             "type": "ext",
             "displayname": "CK Lambda Function",
-            "description": "Deploys an AWS Lambda Function. Lambda functions are one of the foundational compute units AWS offers",
+            "description": "Deploys an AWS Lambda Function. Lambda functions are one of the foundational compute units AWS offers. This is one of two foundational compute resources CloudKommand recommends.",
             "cloud": "AWS",
+            "ck_plugin_tier": 1,
             "download_folder": true,
             "resources": ["AWS::lambda::function"],
             "environment_variables": {
@@ -71,11 +72,22 @@
             "input": {
                 "type": "object",
                 "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "The name of the Lambda function. Will be auto-generated if not specified"
+                    },
                     "runtime": {
                         "type": "string",
                         "default": "python3.9",
-                        "enum": ["python3.9", "python3.8", "python3.6", "python3.7", "nodejs14.x", "nodejs12.x", "nodejs10.x", "ruby2.7", "ruby2.5"],
-                        "description": "The runtime for the Lambda function (language identifier)"
+                        "enum": [
+                            "python3.9", "python3.8", "python3.7", 
+                            "nodejs14.x", "nodejs12.x", "nodejs18.x",
+                            "ruby2.7", "nodejs16.x", "go1.x",
+                            "dotnet6", "dotnet5.0", "java11",
+                            "java8", "java8.al2"
+                        ],
+                        "description": "The (language identifier) for the Lambda function. Only necessary if you are not building a custom container",
+                        "common": true
                     },
                     "handler": {
                         "type": "string",
@@ -90,18 +102,21 @@
                         "description": "The number of seconds before this Lambda function times out automatically",
                         "default": 5,
                         "minimum": 1,
-                        "maximum": 900
+                        "maximum": 900,
+                        "common": true
                     },
                     "memory_size": {
                         "type": "integer",
-                        "description": "The amount of memory to assign to this Lambda function. Also affects compute and I/O",
+                        "description": "The amount of memory to assign to this Lambda function. Also affects compute and I/O. The higher the number, the more expensive the function, and the faster it processes.",
                         "default": 256,
                         "minimum": 128,
-                        "maximum": 10240
+                        "maximum": 10240,
+                        "common": true
                     },
                     "environment_variables": {
                         "type": "object",
-                        "description": "Key-value pairs of environment variables to be set for the Lambda function. Values must be strings"
+                        "description": "Key-value pairs of environment variables to be set for the Lambda function. Values must be strings",
+                        "common": true
                     },
                     "role": {
                         "type": "string",
@@ -111,62 +126,105 @@
                         "type": "string",
                         "description": "An ARN of the role to attach to the Lambda function"
                     },
-                    "name": {
-                        "type": "string",
-                        "description": "The name of the Lambda function. Will be auto-generated if not specified"
-                    },
                     "tags": {
                         "type": "object",
-                        "description": "The tags to attach to this function"
+                        "description": "The tags to attach to this function",
+                        "common": true
                     },
                     "policies": {
                         "type": "array",
-                        "description": "A list of component references to policy components that expose an arn prop. The policies associated with such ARNs will be attached to a role created for the function"
+                        "description": "A list of component references to policy components that expose an arn prop. The policies associated with such ARNs will be attached to a role created for the function. CloudKommand recommends using this input parameter in combination with policy_arns over the 'role' parameters, as each function will get its own role with specific permissions.",
+                        "common": true
                     },
                     "policy_arns": {
                         "type": "array",
-                        "description": "A list of IAM policy ARNs to attach to a custom-created IAM role for this Lambda function"
+                        "description": "A list of IAM policy ARNs to attach to a custom-created IAM role for this Lambda function. CloudKommand recommends using this input parameter in combination with policies over the 'role' parameters, as each function will get its own role with specific permissions.",
+                        "common": true
                     },
                     "role_tags": {
                         "type": "object",
-                        "description": "If auto-generating a role, this sets the role's tags"
+                        "description": "If auto-generating a role, this sets the role's tags",
+                        "common": true
                     },
                     "also_tag_role": {
                         "type": "boolean",
                         "description": "If auto-generating a role, gives it the same tags as the function"
                     },
                     "requirements": {
-                        "type": "array",
+                        "type": ["array", "boolean"],
+                        "description": "If a python lambda, a list of the modules/dependencies that should be added to this lambda. If ruby or node, set to true to build based on Gemfile or package.json, respectively.",
                         "items": {
-                            "type": "string",
-                            "description": "A list of the modules/dependencies that should be added to this lambda"
+                            "type": "string"
                         }
                     },
                     "requirements.txt": {
                         "type": "boolean",
-                        "description": "Set to true if a requirements.txt file should be extracted for installation. This should be placed directly underneath the top level folder"
+                        "description": "If a python lambda, set to true if a requirements.txt file should be read for installation. This should be placed directly underneath the top level folder"
                     },
                     "layers": {
                         "type": "array",
+                        "description": "A list of component references to layer components that expose a version_arn prop. The layer versions associated with such ARNs will be attached to the function",
                         "items": {
-                            "type": "string",
-                            "description": "A list of component references to layer components that expose a version_arn prop. The layer versions associated with such ARNs will be attached to the function"
-                        }
+                            "type": "string"
+                        },
+                        "common": true
                     },
                     "layer_version_arns": {
                         "type": "array",
+                        "description": "A list of layer version ARNs to attach to the function",
                         "items": {
-                            "type": "string",
-                            "description": "A list of layer version ARNs to attach to the function"
+                            "type": "string"
                         }
+                    },
+                    "trust_level": {
+                        "type": "string",
+                        "description": "",
+                        "enum": ["full", "code", "zero"],
+                        "default": "code"
+                    },
+                    "xray": {
+                        "type": "boolean",
+                        "description": "Set to true if you want to enable X-Ray tracing for this function",
+                        "default": false,
+                        "common": true
+                    },
+                    "container": {
+                        "type": "boolean",
+                        "description": "Set to true if you want to build a custom container image for this function"
                     },
                     "login_to_dockerhub": {
                         "type": "boolean",
-                        "description": "Set to true if you want to login to dockerhub before building a custom image"
+                        "description": "Set to true if you want to login to dockerhub before building a custom image. Also sets 'container' to true. Note that this will only work if you set the DOCKERHUB_USERNAME and DOCKERHUB_PASSWORD secrets."
                     },
                     "allowed_invoke_arns": {
                         "type": "array",
-                        "description": "A list of ARNs that are allowed to invoke this function",
+                        "description": "A list of ARNs that are allowed to invoke this function. This is the simplest way to set up a resource policy for the function. Note also these will be added to the Alias",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "reserved_concurrency": {
+                        "type": "integer",
+                        "description": "Set to the amount of 'unreserved' account concurrency you want to set aside for this function to scale up into. Note that this does not incur extra charges, but it does lower the amount of concurrency that is available for other functions."
+                    },
+                    "provisioned_concurrency": {
+                        "type": "integer",
+                        "description": "Set to the number of containers you want permanently running for this function. Note that you will pay for these containers even if they are not being used. Setting a small number for this parameter can be useful for functions with long cold starts, such as Java or .NET functions. Setting this also sets publish_version to true."
+                    },
+                    "publish_version": {
+                        "type": "boolean",
+                        "description": "Set to true if you want to publish a new version of this function. Every deployment create a new version of the function, and update the alias to point to it."
+                    },
+                    "subnet_ids": {
+                        "type": "array",
+                        "description": "A list of subnet IDs to associate with the function. This places the function in the corresponding VPC.",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "security_group_ids": {
+                        "type": "array",
+                        "description": "A list of security group IDs to associate with the function. This places the function in the corresponding VPC.",
                         "items": {
                             "type": "string"
                         }
@@ -213,6 +271,27 @@
                                 "Principal"
                             ]
                         }
+                    },
+                    "Codebuild Project": {
+                        "type": "object",
+                        "description": "A dictionary of overrides for the Codebuild Project that is created to either build the requirements or the container image. See the Codebuild Project documentation for details."
+                    },
+                    "Codebuild Build": {
+                        "type": "object",
+                        "description": "A dictionary of overrides for the Codebuild Build that is created to either build the requirements or the container image. See the Codebuild Build documentation for details."
+                    },
+                    "ECR Repo": {
+                        "type": "object",
+                        "description": "A dictionary of overrides for the ECR Repo that is created to store the container image. See the ECR Repo documentation for details. Rarely needs to be used."
+                    },
+                    "ECR Image": {
+                        "type": "object",
+                        "description": "A dictionary of overrides for the ECR Image that is created to store the container image. See the ECR Image documentation for details."
+                    },
+                    "remove_logs_on_delete": {
+                        "type": "boolean",
+                        "description": "Set to true if you want to remove the logs for this function when you delete it. This can be useful if your function spits out a lot of logs and this is a development environment.",
+                        "default": false
                     }
                 },
                 "anyOf": [
@@ -261,7 +340,15 @@
                 },
                 "master_arn": {
                     "type": "integer",
-                    "description": "Never seen this used, but perhaps it is."
+                    "description": "A parameter attached to Lambdas. Never seen this used, here for completeness' sake."
+                },
+                "version": {
+                    "type": "string",
+                    "description": "The version of the Lambda"
+                },
+                "version_arn": {
+                    "type": "string",
+                    "description": "The ARN of the version of the Lambda. Same as the ARN if the Lambda is not versioned."
                 },
                 "layers": {
                     "type": "array",
@@ -284,13 +371,66 @@
                         }
                     }
                 }
-            }
+            },
+            "examples": [
+                {
+                    "displayname": "A Configured Python Lambda",
+                    "notes": "Sets up a Python Lambda that does includes the external library 'requests'. Note that the folder for this component should contain a file function.py with a function in it called 'handler'. It also increases the memory size and timeout beyond the defaults. It is quite common these parameters should be adjusted. Finally, setting xray turns on X-Ray tracing for the function.",
+                    "definition": {
+                        "type": "&lambda.function",
+                        "runtime": "python3.8",
+                        "memory_size": 512,
+                        "timeout": 30,
+                        "handler": "function.handler",
+                        "requirements": ["requests"],
+                        "environment_variables": {
+                            "MY_ENV_VAR": "my value"
+                        },
+                        "policies": ["&this_lambda_policy"],
+                        "xray": true
+                    }
+                },
+                {
+                    "displayname": "A Node Lambda in a VPC with a Layer",
+                    "notes": "Setting runtime and requirements tells this plugin to build the Lambda function. Setting subnet_ids and security_group_ids puts the function in a VPC. Setting layers attaches a layer from a lambda.layer component defined elsewhere.",
+                    "definition": {
+                        "type": "&lambda.function",
+                        "runtime": "nodejs18.x",
+                        "requirements": true,
+                        "subnet_ids": ["xxx", "yyy"],
+                        "security_group_ids": ["zzz"],
+                        "memory_size": 360,
+                        "timeout": 10,
+                        "environment_variables": {
+                            "MY_ENV_VAR": "my value"
+                        },
+                        "policies": ["&this_lambda_policy"],
+                        "layers": ["&a_layer"]
+                    }
+                },
+                {
+                    "displayname": "A Custom Container Image Lambda",
+                    "notes": "This example sets container to true to tell the plugin that its folder contains a Dockerfile. It also sets environment variables based on another table component, and removes the logs when the function is deleted. Note that runtime is unnecessary in this case.",
+                    "definition": {
+                        "type": "&lambda.function",
+                        "policies": ["&policy"],
+                        "container": true,
+                        "timeout": 20,
+                        "memory_size": 1024,
+                        "remove_logs_on_delete": true,
+                        "environment_variables": {
+                            "TABLE_NAME": "&table:props.name"
+                        }
+                    }
+                }
+            ]
         },
         "layer": {
             "type": "ext",
             "displayname": "CK Lambda Layer",
             "description": "Deploys an AWS Lambda Layer. Layers help you share code between Lambda functions efficiently",
             "cloud": "AWS",
+            "ck_plugin_tier": 2,
             "download_folder": true,
             "resources": ["AWS::lambda::layer"],
             "environment_variables": {
@@ -335,35 +475,44 @@
                 "properties": {
                     "trust_level": {
                         "type": "string",
-                        "description": "Set to full if you trust that what is in AWS has not changed, code if you still want to check the configuration of the pieces of code, and zero if you do not trust it at all",
+                        "description": "Set to full if you trust that what is in AWS has not changed since the last deployment, code if you still want to check the configuration of the pieces of code, and zero if you do not trust it at all. 'full' speeds up deployment the most, followed by 'code'. 'zero' is the safest for production environments.",
                         "enum": ["zero", "code", "full"],
-                        "default": "zero"
+                        "default": "code"
                     },
                     "compatible_runtimes": {
                         "type": "array",
                         "description": "A list of the compatible runtimes of the layer",
-                        "default": ["python3.9", "python3.8", "python3.7", "python3.6"]
+                        "default": ["python3.9", "python3.8", "python3.7"],
+                        "common": true
                     },
                     "name": {
                         "type": "string",
                         "description": "The name of the Lambda Layer. Will be auto-generated if not specified"
                     },
                     "requirements": {
-                        "type": "array",
+                        "type": ["array", "boolean"],
+                        "description": "If Python, a list of the modules/dependencies that should be added to this layer. Otherwise, set to true to build based on the folder's contents and requirements_runtime.",
                         "items": {
-                            "type": "string",
-                            "description": "A list of the modules/dependencies that should be added to this layer"
-                        }
+                            "type": "string"
+                        },
+                        "common": true
                     },
                     "requirements.txt": {
                         "type": "boolean",
-                        "description": "Set to true if a requirements.txt file should be extracted for installation. This should be placed directly underneath the top level folder"
+                        "description": "(Python) Set to true if a requirements.txt file should be extracted for installation. This should be placed directly underneath the top level folder"
                     },
                     "requirements_runtime": {
                         "type": "string",
-                        "description": "The runtime to build your requirements inside",
-                        "enum": ["python3.6", "python3.7", "python3.8", "python3.9", "nodejs12.x", "nodejs14.x"],
-                        "default": "python3.9"
+                        "description": "The runtime to build your requirements inside. We do not recommend using Go for layers, as specifics about the language make it difficult to integrate layer code.",
+                        "enum": [
+                            "python3.9", "python3.8", "python3.7", 
+                            "nodejs14.x", "nodejs12.x", "nodejs18.x",
+                            "ruby2.7", "nodejs16.x", "go1.x",
+                            "dotnet6", "dotnet5.0", "java11",
+                            "java8", "java8.al2"
+                        ],
+                        "default": "python3.9",
+                        "common": true
                     }
                 }
             },
@@ -384,13 +533,35 @@
                     "type": "string",
                     "description": "A SHA of the code obtained from Github for this layer"
                 }
-            }
+            },
+            "examples": [
+                {
+                    "displayname": "A Python Layer from requirements.txt",
+                    "notes": "This example creates a layer from a requirements.txt file. It also sets the runtime to python3.8, and sets the name of the layer to 'my-layer'. The requirements.txt file should be placed directly underneath the top level folder.",
+                    "definition": {
+                        "type": "&lambda.layer",
+                        "requirements.txt": true,
+                        "requirements_runtime": "python3.8",
+                        "name": "my-layer"
+                    }
+                },
+                {
+                    "displayname": "A Node Layer",
+                    "notes": "This example creates a layer from a package.json file and sets the runtime to nodejs12.x.",
+                    "definition": {
+                        "type": "&lambda.layer",
+                        "requirements": true,
+                        "requirements_runtime": "nodejs12.x"
+                    }
+                }
+            ]
         },
         "event_mapping": {
             "type": "ext",
             "displayname": "CK Lambda Event Mapping",
-            "description": "Deploys an AWS Lambda EventSourceMapping. These mappings enable you to subscribe to an event source and trigger a Lambda function when that event is triggered",
+            "description": "Deploys an AWS Lambda EventSourceMapping. These mappings enable you to subscribe to an event source and trigger a Lambda function when that event is triggered. Note that this plugin does not connect to S3 bucket notifications, as that is a separate integration that requires the use of a Lambda resource policy.",
             "cloud": "AWS",
+            "ck_plugin_tier": 2,
             "resources": ["AWS::lambda::eventsourcemapping"],
             "policy": {
                 "Version": "2012-10-17",
@@ -416,27 +587,94 @@
                 "properties": {
                     "event_source_arn": {
                         "type": "string",
-                        "description": "The ARN of the event source to subscribe to a lambda",
-                        "required": true
+                        "description": "The ARN of the event source to subscribe to a lambda"
                     },
                     "function_arn": {
                         "type": "string",
-                        "description": "The ARN of the Lambda function to invoke when the event is triggered",
-                        "required": true
+                        "description": "The ARN of the Lambda function to invoke when the event is triggered"
                     },
                     "batch_size": {
                         "type": "integer",
                         "description": "The number of records to send in a single invocation",
                         "default": 10,
                         "minimum": 1,
-                        "maximum": 10000
+                        "maximum": 10000,
+                        "common": true
                     },
                     "enabled": {
                         "type": "boolean",
                         "description": "Set to false if you want to temporarily disable this event mapping",
                         "default": true
+                    },
+                    "filter_criteria": {
+                        "type": "object",
+                        "description": "A object that defines whether or not Lambda should process an event. See https://docs.aws.amazon.com/lambda/latest/dg/invocation-eventfiltering.html for more information"
+                    },
+                    "maximum_batching_window": {
+                        "type": "integer",
+                        "description": "The maximum amount of time to gather records before invoking the function. If batch_size is greater than 10, the default is changed to 1.",
+                        "default": 0,
+                        "minimum": 0,
+                        "maximum": 300000
+                    },
+                    "parallelization_factor": {
+                        "type": "integer",
+                        "description": "(Stream sources only) The number of batches to process from each shard concurrently",
+                        "default": 1,
+                        "minimum": 1,
+                        "maximum": 10
+                    },
+                    "starting_position": {
+                        "type": "string",
+                        "description": "The position in the stream where AWS Lambda should start reading",
+                        "enum": ["TRIM_HORIZON", "LATEST", "AT_TIMESTAMP"],
+                        "default": "LATEST"
+                    },
+                    "starting_position_timestamp": {
+                        "type": "string",
+                        "description": "The timestamp to use for the event source mapping starting position. If set, starting_position is set to AT_TIMESTAMP"
+                    },
+                    "on_success_arn": {
+                        "type": "string",
+                        "description": "(Stream sources only) The ARN of the destination resource (SQS queue or SNS topic) to send successful invocations to"
+                    },
+                    "on_failure_arn": {
+                        "type": "string",
+                        "description": "(Stream sources only) The ARN of the destination resource (SQS queue or SNS topic) to send failed invocations to"
+                    },
+                    "maximum_record_age": {
+                        "type": "integer",
+                        "description": "(Stream sources only) The maximum age of a record that Lambda sends to a function for processing. The default is infinite (-1)",
+                        "default": -1
+                    },
+                    "bisect_batch_on_error": {
+                        "type": "boolean",
+                        "description": "(Stream sources only) If the function returns an error, split the batch in two and retry",
+                        "default": false
+                    },
+                    "maximum_retry_attempts": {
+                        "type": "integer",
+                        "description": "The maximum number of times to retry when the function returns an error",
+                        "default": 10000,
+                        "minimum": 0,
+                        "maximum": 10000
+                    },
+                    "tumbling_window": {
+                        "type": "integer",
+                        "description": "(Stream sources only) The duration in seconds of a processing window",
+                        "minimum": 1,
+                        "maximum": 900
+                    },
+                    "function_response_types": {
+                        "type": "array",
+                        "description": "",
+                        "items": {
+                            "type": "string",
+                            "enum": ["ReportBatchItemFailures"]
+                        }
                     }
-                }
+                },
+                "required": ["event_source_arn", "function_arn"]
             },
             "props": {
                 "uuid": {
@@ -451,7 +689,19 @@
                     "type": "string",
                     "description": "The event source ARN used in this mapping"
                 }
-            }
+            },
+            "examples": [
+                {
+                    "displayname": "Function Subscribed to SQS Queue",
+                    "notes": "This example subscribes the 'a_lambda' function to the 'a_queue' queue (see https://github.com/cloudkommand/sqs). It also sets the batch_size to 1, so that each message is delivered to the function in a separate invocation.",
+                    "definition": {
+                        "type": "&lambda.event_mapping",
+                        "event_source_arn": "&a_queue:props.arn",
+                        "function_arn": "&a_lambda:props.arn",
+                        "batch_size": 1
+                    }
+                }
+            ]
         }
     },
     "repos": {

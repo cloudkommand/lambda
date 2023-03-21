@@ -10,8 +10,13 @@ import traceback
 import zipfile
 import hashlib
 
-ALLOWED_RUNTIMES = ["python3.9", "python3.8", "python3.6", "python3.7", "nodejs14.x", "nodejs12.x", "nodejs10.x", "ruby2.7", "ruby2.5"]
-
+ALLOWED_RUNTIMES = [
+    "python3.9", "python3.8", "python3.7", 
+    "nodejs14.x", "nodejs12.x", "nodejs18.x",
+    "ruby2.7", "nodejs16.x", "go1.x",
+    "dotnet6", "dotnet5.0", "java11",
+    "java8", "java8.al2"
+]
 
 from extutil import remove_none_attributes, account_context, ExtensionHandler, ext, \
     current_epoch_time_usec_num, component_safe_name, create_zip, \
@@ -607,6 +612,7 @@ def get_default_buildspec_params(runtime):
    
 
 LAMBDA_RUNTIME_TO_CODEBUILD_RUNTIME = {
+    "nodejs18.x": {"nodejs": 18},
     "nodejs16.x": {"nodejs": 16},
     "nodejs14.x": {"nodejs": 14},
     "nodejs12.x": {"nodejs": 12},

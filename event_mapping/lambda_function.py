@@ -40,8 +40,8 @@ def lambda_handler(event, context):
         filter_criteria = cdef.get("filter_criteria")
         maximum_batching_window = cdef.get("maximum_batching_window")
         parallelization_factor = cdef.get("parallelization_factor")
-        starting_position = cdef.get("starting_position")
         starting_position_timestamp = cdef.get("starting_position_timestamp")
+        starting_position = cdef.get("starting_position") if not starting_position_timestamp else "AT_TIMESTAMP"
         on_success_arn = cdef.get("on_success_arn")
         on_failure_arn = cdef.get("on_failure_arn")
         maximum_record_age = cdef.get("maximum_record_age")
