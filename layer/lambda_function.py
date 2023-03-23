@@ -266,6 +266,7 @@ def lambda_handler(event, context):
 
     except Exception as e:
         error = {"value": str(e)}
+        print(error)
         s3.put_object(
             Body=json.dumps(error),
             Bucket=bucket,
