@@ -247,6 +247,8 @@ def lambda_handler(event, context):
                 #We are going to assume there is only one directory, as there should be
                 
                 subprocess.call(f'pip install -r requirements.txt -t ./{dirs[0]}'.split(), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)                
+            else:
+                print("No requirements file found")
 
             zipfile_name = f"{tmpdir}/file2.zip"
             create_zip(zipfile_name, install_directory[:-1])
