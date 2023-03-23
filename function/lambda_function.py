@@ -548,11 +548,17 @@ def lambda_handler(event, context):
             if requirements != "$$file":
                 with open(requirements_file, "w") as f:
                     f.writelines("%s\\n" % i for i in requirements)
-            
-            if os.path.exists(requirements_file):                
-                subprocess.call('pip install -r requirements.txt -t .'.split(), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
             print(os.listdir())
+            
+            if os.path.exists(requirements_file):
+                with open(requirements_file, "r") as f:
+                    print(f.read())                
+                subprocess.check_call('pip install -r requirements.txt -t .'.split(), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            else:
+                print("No requirements file found")
+
+            print(os.walk('.'))
 
             zipfile_name = f"{tmpdir}/file2.zip"
             create_zip(zipfile_name, install_directory[:-1])
@@ -568,6 +574,7 @@ def lambda_handler(event, context):
 
     except Exception as e:
         error = {"value": str(e)}
+        print(error)
         s3.put_object(
             Body=json.dumps(error),
             Bucket=bucket,

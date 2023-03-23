@@ -242,11 +242,15 @@ def lambda_handler(event, context):
                     f.writelines("%s\\n" % i for i in requirements)
             
             if os.path.exists(requirements_file):
+                with open(requirements_file, "r") as f:
+                    print(f.read())
                 dirs = next(os.walk('.'))[1]
                 print(dirs)
                 #We are going to assume there is only one directory, as there should be
                 
-                subprocess.call(f'pip install -r requirements.txt -t ./{dirs[0]}'.split(), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)                
+                subprocess.check_call(f'pip install -r requirements.txt -t ./{dirs[0]}'.split(), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)                
+            else:
+                print("No requirements file found")
 
             zipfile_name = f"{tmpdir}/file2.zip"
             create_zip(zipfile_name, install_directory[:-1])
@@ -262,6 +266,7 @@ def lambda_handler(event, context):
 
     except Exception as e:
         error = {"value": str(e)}
+        print(error)
         s3.put_object(
             Body=json.dumps(error),
             Bucket=bucket,
