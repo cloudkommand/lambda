@@ -558,7 +558,7 @@ def lambda_handler(event, context):
             else:
                 print("No requirements file found")
 
-            print(os.walk())
+            print(os.walk('.'))
 
             zipfile_name = f"{tmpdir}/file2.zip"
             create_zip(zipfile_name, install_directory[:-1])
