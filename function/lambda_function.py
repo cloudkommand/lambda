@@ -550,11 +550,11 @@ def lambda_handler(event, context):
                     f.writelines("%s\\n" % i for i in requirements)
             
             if os.path.exists(requirements_file):                
-                subprocess.call('pip install -r requirements.txt -t .'.split(), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                subprocess.call('pip install -r requirements.txt'.split(), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             else:
                 print("No requirements file found")
 
-            print(os.listdir())
+            print(os.walk())
 
             zipfile_name = f"{tmpdir}/file2.zip"
             create_zip(zipfile_name, install_directory[:-1])
