@@ -253,7 +253,7 @@ def lambda_handler(event, context):
                 #We are going to assume there is only one directory, as there should be
                 
                 try:
-                    subprocess.check_output(f'pip install -r requirements.txt -t ./{dirs[0]}'.split(), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)                
+                    subprocess.check_output(f'pip install -r requirements.txt -t ./{dirs[0]}'.split(), stderr=subprocess.STDOUT)                
                 except subprocess.CalledProcessError as e:
                     raise Exception(f"Requirements Installation Failed: {e.output}")
             else:

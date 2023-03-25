@@ -555,7 +555,7 @@ def lambda_handler(event, context):
                 with open(requirements_file, "r") as f:
                     print(f.read())
                 try:              
-                    subprocess.check_call('pip install -r requirements.txt -t .'.split(), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    subprocess.check_output('pip install -r requirements.txt -t .'.split(), stderr=subprocess.STDOUT)
                 except subprocess.CalledProcessError as e:
                     raise Exception(f"Requirements Installation Failed: {e.output}")
             else:
