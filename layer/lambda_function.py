@@ -367,7 +367,7 @@ def check_requirements_built(bucket):
         if value == "success":
             eh.add_log("Requirements Built", response)
         else:
-            eh.add_log(f"Requirements Errored", response)
+            eh.add_log(f"Requirements Errored", response, True)
             eh.add_state({"requirements_failed": value})
 
     except botocore.exceptions.ClientError as e:
