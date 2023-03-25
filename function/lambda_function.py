@@ -707,7 +707,7 @@ def remove_requirements_lambda(bucket, runtime, context):
     )
 
     if eh.state.get("requirements_failed"):
-        eh.perm_error(f"End ", progress=40)
+        eh.perm_error(eh.state.get("requirements_failed"), progress=40)
 
 @ext(handler=eh, op="setup_codebuild_project")
 def setup_codebuild_project(bucket, object_name, codebuild_def, runtime, op):
