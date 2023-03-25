@@ -245,12 +245,19 @@ def lambda_handler(event, context):
                 with open(requirements_file, "r") as f:
                     print(f.read())
                 dirs = next(os.walk('.'))[1]
+                if not dirs:
+                    print("No Folder")
+                    os.mkdir("python")
+                    dirs = ["python"]
                 print(dirs)
                 #We are going to assume there is only one directory, as there should be
                 
-                subprocess.check_call(f'pip install -r requirements.txt -t ./{dirs[0]}'.split(), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)                
+                try:
+                    subprocess.check_output(f'pip install -r requirements.txt -t ./{dirs[0]}'.split(), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)                
+                except subprocess.CalledProcessError as e:
+                    raise Exception(f"Requirements Installation Failed: {e.output}")
             else:
-                print("No requirements file found")
+                raise Exception("No requirements file found, please add a requirements.txt file or remove the 'requirements.txt' parameter")
 
             zipfile_name = f"{tmpdir}/file2.zip"
             create_zip(zipfile_name, install_directory[:-1])

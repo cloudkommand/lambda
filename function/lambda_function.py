@@ -553,10 +553,13 @@ def lambda_handler(event, context):
             
             if os.path.exists(requirements_file):
                 with open(requirements_file, "r") as f:
-                    print(f.read())                
-                subprocess.check_call('pip install -r requirements.txt -t .'.split(), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    print(f.read())
+                try:              
+                    subprocess.check_call('pip install -r requirements.txt -t .'.split(), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                except subprocess.CalledProcessError as e:
+                    raise Exception(f"Requirements Installation Failed: {e.output}")
             else:
-                print("No requirements file found")
+                raise Exception("No requirements file found, please add a requirements.txt file or remove the 'requirements.txt' parameter")
 
             print(os.walk('.'))
 
