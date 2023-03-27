@@ -553,10 +553,13 @@ def lambda_handler(event, context):
             
             if os.path.exists(requirements_file):
                 with open(requirements_file, "r") as f:
-                    print(f.read())                
-                subprocess.check_call('pip install -r requirements.txt -t .'.split(), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    print(f.read())
+                try:              
+                    subprocess.check_output('pip install -r requirements.txt -t .'.split(), stderr=subprocess.STDOUT)
+                except subprocess.CalledProcessError as e:
+                    raise Exception(f"Requirements Installation Failed: {e.output}")
             else:
-                print("No requirements file found")
+                raise Exception("No requirements file found, please add a requirements.txt file or remove the 'requirements.txt' parameter")
 
             print(os.walk('.'))
 
@@ -670,7 +673,7 @@ def check_requirements_built(bucket):
         if value == "success":
             eh.add_log("Requirements Built", response)
         else:
-            eh.add_log(f"Requirements Errored", response)
+            eh.add_log(f"Requirements Errored", response, True)
             eh.add_state({"requirements_failed": value})
 
     except botocore.exceptions.ClientError as e:
@@ -704,7 +707,7 @@ def remove_requirements_lambda(bucket, runtime, context):
     )
 
     if eh.state.get("requirements_failed"):
-        eh.perm_error(f"End ", progress=40)
+        eh.perm_error(eh.state.get("requirements_failed"), progress=40)
 
 @ext(handler=eh, op="setup_codebuild_project")
 def setup_codebuild_project(bucket, object_name, codebuild_def, runtime, op):
