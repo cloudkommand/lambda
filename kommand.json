@@ -80,7 +80,7 @@
                         "type": "string",
                         "default": "python3.9",
                         "enum": [
-                            "python3.9", "python3.8", "python3.7", 
+                            "python3.10", "python3.9", "python3.8", "python3.7", 
                             "nodejs14.x", "nodejs12.x", "nodejs18.x",
                             "ruby2.7", "nodejs16.x", "go1.x",
                             "dotnet6", "dotnet5.0", "java11",
@@ -505,7 +505,7 @@
                         "type": "string",
                         "description": "The runtime to build your requirements inside. We do not recommend using Go for layers, as specifics about the language make it difficult to integrate layer code.",
                         "enum": [
-                            "python3.9", "python3.8", "python3.7", 
+                            "python3.10", "python3.9", "python3.8", "python3.7", 
                             "nodejs14.x", "nodejs12.x", "nodejs18.x",
                             "ruby2.7", "nodejs16.x", "go1.x",
                             "dotnet6", "dotnet5.0", "java11",

@@ -335,8 +335,10 @@ def deploy_requirements_lambda(bucket, runtime):
         arn=lambda_env("function_lambda_name"), component_def=component_def, 
         object_name=eh.state["requirements_object_name"],
         child_key="Requirements Lambda", progress_start=25, progress_end=30,
-        op="upsert", ignore_props_links=True
+        op="upsert", links_prefix="Requirements"
     )
+
+    eh.links.pop("Requirements Function", None)
 
     eh.add_op("invoke_requirements_lambda")
 
@@ -365,9 +367,9 @@ def check_requirements_built(bucket):
         value = json.loads(response.read()).get("value")
         eh.add_op("remove_requirements_lambda")
         if value == "success":
-            eh.add_log("Requirements Built", response)
+            eh.add_log("Requirements Built", value)
         else:
-            eh.add_log(f"Requirements Errored", response, True)
+            eh.add_log(f"Requirements Errored", value, True)
             eh.add_state({"requirements_failed": value})
 
     except botocore.exceptions.ClientError as e:
