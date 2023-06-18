@@ -17,7 +17,7 @@ from extutil import remove_none_attributes, gen_log, creturn, handle_common_erro
 
 eh = ExtensionHandler()
 ALLOWED_RUNTIMES = [
-    "python3.9", "python3.8", "python3.7", 
+    "python3.10", "python3.9", "python3.8", "python3.7", 
     "nodejs14.x", "nodejs12.x", "nodejs18.x",
     "ruby2.7", "nodejs16.x", "go1.x",
     "dotnet6", "dotnet5.0", "java11",
