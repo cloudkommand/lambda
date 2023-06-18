@@ -91,6 +91,7 @@ def lambda_handler(event, context):\
         #Elevated Trust Functions (Full, Code)
 
         compare_defs(event)
+        check_code_sha(event, context)
         compare_etags(event, bucket, object_name)
 
         load_initial_props(bucket, object_name)
@@ -145,7 +146,7 @@ def compare_defs(event):
 
     if old_digest == digest:
         eh.add_log("Definitions Match, Checking Deploy Code", {"old_hash": old_digest, "new_hash": digest})
-        eh.add_op("compare_etags") 
+        eh.add_op("check_code_sha") 
 
     else:
         eh.add_log("Definitions Don't Match, Deploying", {"old": old_digest, "new": digest})
