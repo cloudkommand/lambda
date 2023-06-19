@@ -94,7 +94,7 @@ def lambda_handler(event, context):\
         check_code_sha(event, context)
         compare_etags(event, bucket, object_name)
 
-        load_initial_props(bucket, object_name)
+        load_initial_props(bucket, object_name, context)
         add_requirements(context, runtime)
 
         #Python hack that reduces time to build by 2-3 fold.
@@ -192,10 +192,19 @@ def compare_etags(event, bucket, object_name):
             eh.add_log("Code Changed, Deploying", {"old_etag": initial_etag, "new_etag": new_etag})
 
 @ext(handler=eh, op="load_initial_props")
-def load_initial_props(bucket, object_name):
+def load_initial_props(bucket, object_name, context):
     get_s3_etag(bucket, object_name)
     if eh.state.get("zip_etag"):
         eh.add_props({"initial_etag": eh.state.get("zip_etag")})
+
+    try:
+        new_sha = lambda_client.get_function(
+            FunctionName=context.function_name
+        ).get("Configuration", {}).get("CodeSha256")
+        eh.add_props({"code_sha": new_sha})
+    except ClientError as e:
+        handle_common_errors(e, eh, "Get Layer Function Failed", 2)
+        
 
 @ext(handler=eh, op="add_requirements")
 def add_requirements(context, runtime):
