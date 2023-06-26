@@ -91,9 +91,10 @@ def lambda_handler(event, context):\
         #Elevated Trust Functions (Full, Code)
 
         compare_defs(event)
+        check_code_sha(event, context)
         compare_etags(event, bucket, object_name)
 
-        load_initial_props(bucket, object_name)
+        load_initial_props(bucket, object_name, context)
         add_requirements(context, runtime)
 
         #Python hack that reduces time to build by 2-3 fold.
@@ -144,11 +145,31 @@ def compare_defs(event):
     eh.add_props({"def_hash": digest})
 
     if old_digest == digest:
-        eh.add_log("Definitions Match, Checking Code", {"old_hash": old_digest, "new_hash": digest})
-        eh.add_op("compare_etags") #Should hash definition
+        eh.add_log("Definitions Match, Checking Deploy Code", {"old_hash": old_digest, "new_hash": digest})
+        eh.add_op("check_code_sha") 
 
     else:
         eh.add_log("Definitions Don't Match, Deploying", {"old": old_digest, "new": digest})
+
+@ext(handler=eh, op="check_code_sha")
+def check_code_sha(event, context):
+    old_props = event.get("prev_state", {}).get("props", {})
+    old_sha = old_props.get("code_sha")
+    try:
+        new_sha = lambda_client.get_function(
+            FunctionName=context.function_name
+        ).get("Configuration", {}).get("CodeSha256")
+        eh.add_props({"code_sha": new_sha})
+    except ClientError as e:
+        handle_common_errors(e, eh, "Get Layer Function Failed", 2)
+        
+    if old_sha == new_sha:
+        eh.add_log("Deploy Code Matches, Checking Code", {"old_sha": old_sha, "new_sha": new_sha})
+        eh.add_op("compare_etags") 
+    
+    else:
+        eh.add_log("Deploy Code Doesn't Match, Deploying", {"old_sha": old_sha, "new_sha": new_sha})
+
 
 @ext(handler=eh, op="compare_etags")
 def compare_etags(event, bucket, object_name):
@@ -171,10 +192,19 @@ def compare_etags(event, bucket, object_name):
             eh.add_log("Code Changed, Deploying", {"old_etag": initial_etag, "new_etag": new_etag})
 
 @ext(handler=eh, op="load_initial_props")
-def load_initial_props(bucket, object_name):
+def load_initial_props(bucket, object_name, context):
     get_s3_etag(bucket, object_name)
     if eh.state.get("zip_etag"):
         eh.add_props({"initial_etag": eh.state.get("zip_etag")})
+
+    try:
+        new_sha = lambda_client.get_function(
+            FunctionName=context.function_name
+        ).get("Configuration", {}).get("CodeSha256")
+        eh.add_props({"code_sha": new_sha})
+    except ClientError as e:
+        handle_common_errors(e, eh, "Get Layer Function Failed", 2)
+        
 
 @ext(handler=eh, op="add_requirements")
 def add_requirements(context, runtime):
@@ -335,8 +365,10 @@ def deploy_requirements_lambda(bucket, runtime):
         arn=lambda_env("function_lambda_name"), component_def=component_def, 
         object_name=eh.state["requirements_object_name"],
         child_key="Requirements Lambda", progress_start=25, progress_end=30,
-        op="upsert", ignore_props_links=True
+        op="upsert", links_prefix="Requirements"
     )
+
+    eh.links.pop("Requirements Function", None)
 
     eh.add_op("invoke_requirements_lambda")
 
@@ -365,9 +397,9 @@ def check_requirements_built(bucket):
         value = json.loads(response.read()).get("value")
         eh.add_op("remove_requirements_lambda")
         if value == "success":
-            eh.add_log("Requirements Built", response)
+            eh.add_log("Requirements Built", value)
         else:
-            eh.add_log(f"Requirements Errored", response, True)
+            eh.add_log(f"Requirements Errored", value, True)
             eh.add_state({"requirements_failed": value})
 
     except botocore.exceptions.ClientError as e:
