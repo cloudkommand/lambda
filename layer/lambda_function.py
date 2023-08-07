@@ -61,6 +61,13 @@ def lambda_handler(event, context):\
         if pass_back_data:
             pass
         elif event.get("op") == "upsert":
+            # Simple Rollback using ##artifacts## key
+            if event.get("rollback") and prev_state.get("##artifacts##") and prev_state.get("##artifacts##").get("code"):
+                object_name = prev_state.get("##artifacts##").get("code").get("location")
+                eh.add_op("publish_layer_version")
+                if prev_state and prev_state.get("props") and (prev_state.get("props").get("name")) != layer_name:
+                    eh.add_op("remove_layer_versions", {"name":prev_state.get("props").get("name")})
+
             if trust_level in ["full", "code"]:
                 eh.add_op("compare_defs")
             # elif trust_level == "code":
@@ -186,6 +193,7 @@ def compare_etags(event, bucket, object_name):
             eh.add_props(old_props)
             eh.add_links(event.get("prev_state", {}).get("links", {}))
             eh.add_state(event.get("prev_state", {}).get("state", {}))
+            eh.add_artifacts(event.get("prev_state", {}).get("artifacts", {}))
             eh.declare_return(200, 100, success=True)
 
         else:
@@ -532,6 +540,7 @@ def check_if_update_required(prev_state, bucket, object_name):
                 eh.add_props(prev_state.get("props"))
                 eh.add_links(prev_state.get("links"))
                 eh.add_state(prev_state.get("state"))
+                eh.add_artifacts(prev_state.get("artifacts"))
             else:
                 eh.add_log("New Layer Version Required", {"etag": eh.state.get('zip_etag'), "code_etag": code_etag})
                 eh.add_op("publish_layer_version")
@@ -575,6 +584,7 @@ def publish_layer_version(layer_name, cdef, bucket, object_name, region, runtime
             "version": lambda_response['Version']
         })
         eh.add_links({"Layer": gen_layer_link(layer_name, region)})
+        eh.add_artifacts({"code": {"type": "S3", "location": object_name}})
         if lambda_response['Version'] != 1:
             eh.add_op("remove_layer_versions", {"name": layer_name, "version": lambda_response['Version']})
 
