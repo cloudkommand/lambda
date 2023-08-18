@@ -388,19 +388,6 @@ class ExtensionHandler:
         return self.links
 
     def add_artifacts(self, artifacts):
-        for k,v in artifacts.items():
-            if not isinstance(v, dict):
-                raise Exception(f"Artifact {k} must be a dict")
-            if v.get("type") not in ["S3", "ECR"]:
-                raise Exception(f"Artifact {k} must have type S3 or ECR")
-            if "location" not in v:
-                raise Exception(f"Artifact {k} must have 'location'")
-            if v.get("type") == "S3":
-                v["link"] = gen_s3_artifact_link(self.bucket, v['location'])
-            elif v.get("type") == "ECR":
-                if "digest" not in v:
-                    raise Exception(f"ECR Artifact {k} must have 'digest'")
-                v["link"] = gen_ecr_artifact_link(v['location'], v['digest'])
         self.artifacts.update(artifacts)
         return self.artifacts
         
@@ -504,12 +491,3 @@ def gen_log_link():
     # Get milliseconds since epoch
     millis = int(round(time.time() * 1000)) - 50
     return f"https://{region}.console.aws.amazon.com/cloudwatch/home?region={region}#logsV2:log-groups/log-group/$252Faws$252Flambda$252F{os.environ['AWS_LAMBDA_FUNCTION_NAME']}/log-events/{log_event_encoded}$3Fstart$3D{millis}"
-
-def gen_s3_artifact_link(bucket, key):
-    return f"https://s3.console.aws.amazon.com/s3/object/{bucket}?region=us-east-1&prefix={key}"
-
-def gen_ecr_artifact_link(image, digest):
-    account_number = image.split(".")[0]
-    region = image.split(".")[3]
-    repo = image.split("/")[1].split(":")[0]
-    return f"https://{region}.console.aws.amazon.com/ecr/repositories/private/{account_number}/{repo}/_/image/{digest}/details?region={region}"

@@ -22,6 +22,17 @@ ALLOWED_RUNTIMES = [
     "java8", "java8.al2"
 ]
 
+REQUIRED_PROPS = [
+    "name", "arn", "def_hash", "code_sha", "version_arn", "version",
+    "initial_etag"
+]
+REQUIRED_LINKS = [
+    "Layer"
+]
+REQUIRED_ARTIFACTS = [
+    "code"
+]
+
 CODEBUILD_PROJECT_KEY = "Codebuild Project"
 CODEBUILD_BUILD_KEY = "Codebuild Build"
 
@@ -29,7 +40,7 @@ eh = ExtensionHandler()
 
 lambda_client = boto3.client("lambda")
 s3 = boto3.client("s3")
-def lambda_handler(event, context):\
+def lambda_handler(event, context):
     #Three types of trust:
     # 1. Zero
     # 2. Code
@@ -46,6 +57,10 @@ def lambda_handler(event, context):\
         cname = event.get("component_name")
 
         trust_level = cdef.get("trust_level") or "code"
+        rollback = event.get("rollback")
+        if rollback:
+            trust_level = "zero"
+
         layer_name = cdef.get("name") or component_safe_name(project_code, repo_id, cname)
         runtime = cdef.get("requirements_runtime") or "python3.9"
         # if requirements_runtime and requirements_runtime not in ALLOWED_RUNTIMES:
@@ -61,47 +76,60 @@ def lambda_handler(event, context):\
         if pass_back_data:
             pass
         elif event.get("op") == "upsert":
+            eh.add_op("check_required_attributes")
+            add_non_rollback_ops = True
+            old_artifacts = prev_state.get("##artifacts##", {})
             # Simple Rollback using ##artifacts## key
-            if event.get("rollback") and prev_state.get("##artifacts##") and prev_state.get("##artifacts##").get("code"):
-                object_name = prev_state.get("##artifacts##").get("code").get("location")
-                eh.add_op("publish_layer_version")
+            if rollback and old_artifacts and old_artifacts.get("code"):
+                object_name = old_artifacts.get("code").get("location")
+                try:
+                    s3.get_object(Bucket=bucket, Key=object_name)
+                    eh.add_op("publish_layer_version")
+                    if prev_state and prev_state.get("props") and (prev_state.get("props").get("name")) != layer_name:
+                        eh.add_op("remove_layer_versions", {"name":prev_state.get("props").get("name")})
+                    eh.add_op("get_rollback_props")
+                    add_non_rollback_ops = False
+                except Exception as e:
+                    print(str(e))
+                    eh.add_log("Missing Rollback Code", {"error": str(e)}, is_error=True)
+
+
+            if add_non_rollback_ops:
+                if trust_level in ["full", "code"]:
+                    eh.add_op("compare_defs")
+                # elif trust_level == "code":
+                #     eh.add_op("compare_etags")
+
+                eh.add_op("load_initial_props")
+                if cdef.get("requirements"):
+                    eh.add_op("add_requirements", cdef.get("requirements"))
+                    eh.add_state({"requirements": cdef.get("requirements")})
+                elif cdef.get("requirements.txt"):
+                    eh.add_op("add_requirements", "$$file")
+                    eh.add_state({"requirements": "$$file"})
+                    
                 if prev_state and prev_state.get("props") and (prev_state.get("props").get("name")) != layer_name:
                     eh.add_op("remove_layer_versions", {"name":prev_state.get("props").get("name")})
-
-            if trust_level in ["full", "code"]:
-                eh.add_op("compare_defs")
-            # elif trust_level == "code":
-            #     eh.add_op("compare_etags")
-
-            eh.add_op("load_initial_props")
-            if cdef.get("requirements"):
-                eh.add_op("add_requirements", cdef.get("requirements"))
-                eh.add_state({"requirements": cdef.get("requirements")})
-            elif cdef.get("requirements.txt"):
-                eh.add_op("add_requirements", "$$file")
-                eh.add_state({"requirements": "$$file"})
-                
-            if prev_state and prev_state.get("props") and (prev_state.get("props").get("name")) != layer_name:
-                eh.add_op("remove_layer_versions", {"name":prev_state.get("props").get("name")})
-                eh.add_op("publish_layer_version")
-            elif prev_state:
-                eh.add_op("check_if_update_required")
-            else:
-                eh.add_op("publish_layer_version")
+                    eh.add_op("publish_layer_version")
+                elif prev_state:
+                    eh.add_op("check_if_update_required")
+                else:
+                    eh.add_op("publish_layer_version")
 
         elif event.get("op") == "delete":
             if prev_state.get("props", {}).get(CODEBUILD_PROJECT_KEY):
                 eh.add_op("setup_codebuild_project")
             eh.add_op("remove_layer_versions", {"name": layer_name})
 
-        # eh.add_state({"object_name": object_name})
         #Elevated Trust Functions (Full, Code)
-
         compare_defs(event)
         check_code_sha(event, context)
         compare_etags(event, bucket, object_name)
 
-        load_initial_props(bucket, object_name, context)
+        # Sorts out Props
+        load_initial_props(bucket, object_name, event, context)
+
+
         add_requirements(context, runtime)
 
         #Python hack that reduces time to build by 2-3 fold.
@@ -115,9 +143,13 @@ def lambda_handler(event, context):\
         setup_codebuild_project(bucket, object_name, codebuild_project_override_def, runtime, event["op"])
         run_codebuild_build(codebuild_build_override_def)
 
+        #Now dealing with the layer itself
         check_if_update_required(prev_state, bucket, eh.state.get("new_object_name") or object_name)
         publish_layer_version(layer_name, cdef, bucket, eh.state.get("new_object_name") or object_name, region, runtime)
         remove_layer_versions(event.get("op"))
+
+        #Wrapup
+        check_required_attributes()
 
         return eh.finish()
 
@@ -180,7 +212,8 @@ def check_code_sha(event, context):
 
 @ext(handler=eh, op="compare_etags")
 def compare_etags(event, bucket, object_name):
-    old_props = event.get("prev_state", {}).get("props", {})
+    prev_state = event.get("prev_state", {})
+    old_props = prev_state.get("props", {})
 
     initial_etag = old_props.get("initial_etag")
 
@@ -190,28 +223,35 @@ def compare_etags(event, bucket, object_name):
         new_etag = eh.state["zip_etag"]
         if initial_etag == new_etag:
             eh.add_log("Elevated Trust: No Change Detected", {"initial_etag": initial_etag, "new_etag": new_etag})
-            eh.add_props(old_props)
-            eh.add_links(event.get("prev_state", {}).get("links", {}))
-            eh.add_state(event.get("prev_state", {}).get("state", {}))
-            eh.add_artifacts(event.get("prev_state", {}).get("artifacts", {}))
-            eh.declare_return(200, 100, success=True)
+            wrap_up_not_deploying(prev_state)
 
         else:
             eh.add_log("Code Changed, Deploying", {"old_etag": initial_etag, "new_etag": new_etag})
 
 @ext(handler=eh, op="load_initial_props")
-def load_initial_props(bucket, object_name, context):
+def load_initial_props(bucket, object_name, event, context):
     get_s3_etag(bucket, object_name)
     if eh.state.get("zip_etag"):
         eh.add_props({"initial_etag": eh.state.get("zip_etag")})
 
-    try:
-        new_sha = lambda_client.get_function(
-            FunctionName=context.function_name
-        ).get("Configuration", {}).get("CodeSha256")
-        eh.add_props({"code_sha": new_sha})
-    except ClientError as e:
-        handle_common_errors(e, eh, "Get Layer Function Failed", 2)
+    if not eh.props.get("def_hash"):
+        new_rendef = event.get("component_def")
+
+        _ = new_rendef.pop("trust_level", None)
+
+        dhash = hashlib.md5()
+        dhash.update(json.dumps(new_rendef, sort_keys=True).encode())
+        digest = dhash.hexdigest()
+        eh.add_props({"def_hash": digest})
+
+    if not eh.props.get("code_sha"):
+        try:
+            new_sha = lambda_client.get_function(
+                FunctionName=context.function_name
+            ).get("Configuration", {}).get("CodeSha256")
+            eh.add_props({"code_sha": new_sha})
+        except ClientError as e:
+            handle_common_errors(e, eh, "Get Layer Function Failed", 2)
         
 
 @ext(handler=eh, op="add_requirements")
@@ -638,6 +678,25 @@ def remove_layer_versions(op):
                 eh.add_log("Deleted Layer Version", layer_version)
         except Exception as e:
             print(str(e))
+
+@ext(handler=eh)
+def check_required_attributes():
+    for prop in REQUIRED_PROPS:
+        if not eh.props.get(prop):
+            eh.add_log(f"Missing Required Prop: {prop}", {"props": eh.props}, True)
+    for link in REQUIRED_LINKS:
+        if not eh.links.get(link):
+            eh.add_log(f"Missing Required Link: {link}", {"links": eh.links}, True)
+    for artifact in REQUIRED_ARTIFACTS:
+        if not eh.artifacts.get(artifact):
+            eh.add_log(f"Missing Required Artifact: {artifact}", {"artifacts": eh.artifacts}, True)
+    
+def wrap_up_not_deploying(prev_state):
+    eh.add_props(prev_state.get("props", {}))
+    eh.add_links(prev_state.get("links", {}))
+    eh.add_state(prev_state.get("state", {}))
+    eh.add_artifacts(prev_state.get("artifacts", {}))
+    eh.declare_return(200, 100, success=True)
 
 def gen_layer_link(layer_name, region):
     return f"https://console.aws.amazon.com/lambda/home?region={region}#/layers/{layer_name}"

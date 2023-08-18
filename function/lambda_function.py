@@ -24,6 +24,16 @@ ALLOWED_RUNTIMES = [
     "java8", "java8.al2"
 ]
 
+REQUIRED_PROPS = [
+
+]
+
+REQUIRED_LINKS = [
+    "Function", "Log Group"
+]
+
+REQUIRED_ATTRIBUTES = []
+
 ECR_REPO_KEY = "ECR Repo"
 ECR_IMAGE_KEY = "ECR Image"
 ALIAS_KEY = "Alias"
@@ -32,6 +42,7 @@ ALIAS_KEY = "Alias"
 lambda_client = boto3.client("lambda")
 logs = boto3.client("logs")
 s3 = boto3.client("s3")
+ecr = boto3.client("ecr")
 def lambda_handler(event, context):
     try:
         print(event)
@@ -49,6 +60,11 @@ def lambda_handler(event, context):
         project_code = event.get("project_code")
         repo_id = event.get("repo_id")
         object_name = event.get("s3_object_name")
+
+        trust_level = cdef.get("trust_level") or "code"
+        rollback = event.get("rollback")
+        if rollback:
+            trust_level = "zero"
         
         is_custom_container = cdef.get("container") or cdef.get("login_to_dockerhub")
 
@@ -58,7 +74,6 @@ def lambda_handler(event, context):
         timeout = cdef.get("timeout") or 5
         memory_size = cdef.get("memory_size") or 256
         environment = {"Variables": {k: str(v) for k,v in cdef.get("environment_variables").items()}} if cdef.get("environment_variables") else None
-        trust_level = cdef.get("trust_level") or "code"
 
         if (not is_custom_container) and (runtime not in ALLOWED_RUNTIMES):
             return creturn(200, 0, error=f"runtime {runtime} not allowed, please choose one of {ALLOWED_RUNTIMES}")
@@ -138,29 +153,60 @@ def lambda_handler(event, context):
         if pass_back_data:
             pass
         elif op == "upsert":
-            if trust_level == "full":
-                eh.add_op("compare_defs")
-            elif trust_level == "code":
-                eh.add_op("compare_etags")
+            eh.add_op("check_required_attributes")
+            # Simple Rollback using ##artifacts## key
+            add_non_rollback_ops = True
+            # Simple Rollback using ##artifacts## key
+            old_artifacts = prev_state.get("##artifacts##", {})
+            if rollback and old_artifacts and len(old_artifacts.keys()):
+                if "code" in old_artifacts:
+                    object_name = prev_state.get("##artifacts##").get("code").get("location")
+                    try:
+                        s3.get_object(Bucket=bucket, Key=object_name)
+                        eh.add_op("publish_layer_version")
+                        if prev_state and prev_state.get("props") and (prev_state.get("props").get("name")) != layer_name:
+                            eh.add_op("remove_layer_versions", {"name":prev_state.get("props").get("name")})
+                        add_non_rollback_ops = False
+                    except Exception as e:
+                        print(str(e))
+                        eh.add_log("Missing Rollback Code", {"error": str(e)}, is_error=True)
+                
+                elif "image" in old_artifacts:
+                    uri = old_artifacts.get("image").get("location")
+                    repo_name = uri.split("/")[1].split(":")[0]
+                    digest = old_artifacts.get("image").get("digest")
+                    try:
+                        response = ecr.describe_images(repositoryName=repo_name, imageIds=[{"imageDigest": digest}])
+                        eh.add_op("get_props_from_artifact")
+                        add_non_rollback_ops = False
+                    except Exception as e:
+                        print(str(e))
+                        eh.add_log("Missing Rollback Image", {"error": str(e)}, is_error=True)
 
-            eh.add_op("load_initial_props")
-            eh.add_op('upsert_role')
-            eh.add_op("get_lambda")
-            eh.add_op("gen_props")
-            eh.add_op("get_alias")
-            eh.add_op("get_function_reserved_concurrency")
-            eh.add_op("get_function_provisioned_concurrency")
-            eh.add_op("get_resource_policy")
-            eh.add_op("get_function_resource_policy")
-            if is_custom_container:
-                eh.add_op("setup_ecr_repo")
-                eh.add_op("setup_ecr_image")
-            elif cdef.get("requirements") or runtime.startswith(("go", "java", "dotnet")):
-                eh.add_op("add_requirements")
-                eh.add_state({"requirements": cdef.get("requirements")})
-            elif cdef.get("requirements.txt"):
-                eh.add_op("add_requirements")
-                eh.add_state({"requirements": "$$file"})
+            if add_non_rollback_ops:
+                if trust_level == "full" and not rollback:
+                    eh.add_op("compare_defs")
+                elif trust_level == "code" and not rollback:
+                    eh.add_op("compare_etags")
+
+                eh.add_op("load_initial_props")
+                eh.add_op('upsert_role')
+                eh.add_op("get_lambda")
+                eh.add_op("gen_props")
+                eh.add_op("get_alias")
+                eh.add_op("get_function_reserved_concurrency")
+                eh.add_op("get_function_provisioned_concurrency")
+                eh.add_op("get_resource_policy")
+                eh.add_op("get_function_resource_policy")
+                if is_custom_container:
+                    eh.add_op("setup_ecr_repo")
+                    eh.add_op("setup_ecr_image")
+                elif cdef.get("requirements") or runtime.startswith(("go", "java", "dotnet")):
+                    eh.add_op("add_requirements")
+                    eh.add_state({"requirements": cdef.get("requirements")})
+                elif cdef.get("requirements.txt"):
+                    eh.add_op("add_requirements")
+                    eh.add_state({"requirements": "$$file"})
         elif op == "delete":
             if prev_state.get("props", {}).get(ECR_REPO_KEY):
                 eh.add_op("setup_ecr_repo")
@@ -247,6 +293,8 @@ def lambda_handler(event, context):
         remove_log_group()
         remove_role(policies, policy_arns, role_description, role_tags)
         gen_props(function_name, region)
+
+        check_required_attributes()
 
         return eh.finish()
 
@@ -348,6 +396,7 @@ def compare_etags(event, bucket, object_name, trust_level):
                 eh.add_props(old_props)
                 eh.add_links(event.get("prev_state", {}).get("links", {}))
                 eh.add_state(event.get("prev_state", {}).get("state", {}))
+                eh.add_artifacts(event.get("prev_state", {}).get("artifacts", {}))
                 eh.declare_return(200, 100, success=True)
             else: #trust_level = "code"
                 component_def = event.get("component_def")
@@ -1410,6 +1459,24 @@ def remove_log_group():
             eh.retry_error(str(e), 98 if create_and_delete else 70)
             eh.add_log(f"Error Deleting Log Group", {"name": log_group_to_delete}, True)
 
+@ext(handler=eh)
+def check_required_attributes():
+    for prop in REQUIRED_PROPS:
+        if not eh.props.get(prop):
+            eh.add_log(f"Missing Required Prop: {prop}", {"props": eh.props}, True)
+    for link in REQUIRED_LINKS:
+        if not eh.links.get(link):
+            eh.add_log(f"Missing Required Link: {link}", {"links": eh.links}, True)
+    for artifact in REQUIRED_ARTIFACTS:
+        if not eh.artifacts.get(artifact):
+            eh.add_log(f"Missing Required Artifact: {artifact}", {"artifacts": eh.artifacts}, True)
+    
+def wrap_up_not_deploying(prev_state):
+    eh.add_props(prev_state.get("props", {}))
+    eh.add_links(prev_state.get("links", {}))
+    eh.add_state(prev_state.get("state", {}))
+    eh.add_artifacts(prev_state.get("artifacts", {}))
+    eh.declare_return(200, 100, success=True)
 
 def get_default_buildspec_params(runtime):
     pre_build_commands = []
