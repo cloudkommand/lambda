@@ -392,7 +392,7 @@
                 },
                 {
                     "displayname": "A Node Lambda in a VPC with a Layer",
-                    "notes": "Setting runtime and requirements tells this plugin to build the Lambda function. Setting subnet_ids and security_group_ids puts the function in a VPC. Setting layers attaches a layer from a lambda.layer component defined elsewhere.",
+                    "notes": "When putting a Lambda inside a VPC, the policy attached to it must include the permissions 'ec2:CreateNetworkInterface', 'ec2:DescribeNetworkInterfaces', and 'ec2:DeleteNetworkInterface'. Alternatively, you can add 'AWSLambdaVPCAccessExecutionRole' to policy_arns, as shown in this example. Setting runtime and requirements tells this plugin to build the Lambda function. Setting subnet_ids and security_group_ids puts the function in a VPC. Setting layers attaches a layer from a lambda.layer component defined elsewhere.",
                     "definition": {
                         "type": "&lambda.function",
                         "runtime": "nodejs18.x",
@@ -405,6 +405,7 @@
                             "MY_ENV_VAR": "my value"
                         },
                         "policies": ["&this_lambda_policy"],
+                        "policy_arns": ["arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"],
                         "layers": ["&a_layer"]
                     }
                 },
