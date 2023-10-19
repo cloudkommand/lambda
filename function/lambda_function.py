@@ -747,7 +747,7 @@ def setup_codebuild_project(bucket, object_name, codebuild_def, runtime, op):
     if not eh.state.get("codebuild_object_key"):
         eh.add_state({"codebuild_object_key": f"{random_id()}.zip"})
 
-    runtime_version = LAMBDA_RUNTIME_TO_CODEBUILD_RUNTIME[runtime]
+    runtime_version = LAMBDA_RUNTIME_TO_CODEBUILD_RUNTIME.get(runtime)
     pre_build_commands, build_commands, post_build_commands, buildspec_artifacts = get_default_buildspec_params(runtime)
     
     # This really should just use the codebuild project's mapping.
@@ -1423,14 +1423,14 @@ def get_default_buildspec_params(runtime):
         ],
         # "base-directory": "target"
     }
-    if runtime.startswith("node"):
+    if runtime and runtime.startswith("node"):
         build_commands = [
             "echo 'Installing NPM Dependencies'",
             "npm install --production"
         ]
     
     # This should really know what the handler is before running this command.
-    elif runtime.startswith("go"):
+    elif runtime and runtime.startswith("go"):
         build_commands = [
             "echo 'Installing Go Dependencies'",
             "go build main.go"
