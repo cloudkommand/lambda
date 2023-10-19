@@ -161,6 +161,8 @@ def lambda_handler(event, context):
             elif cdef.get("requirements.txt"):
                 eh.add_op("add_requirements")
                 eh.add_state({"requirements": "$$file"})
+            if cdef.get("Codebuild Project"):
+                eh.add_op("setup_codebuild_project")
         elif op == "delete":
             if prev_state.get("props", {}).get(ECR_REPO_KEY):
                 eh.add_op("setup_ecr_repo")
