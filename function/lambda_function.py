@@ -749,7 +749,7 @@ def setup_codebuild_project(bucket, object_name, codebuild_def, runtime, op):
     pre_build_commands, build_commands, post_build_commands, buildspec_artifacts = get_default_buildspec_params(runtime)
     
     # This really should just use the codebuild project's mapping.
-    container_image = CODEBUILD_RUNTIME_TO_IMAGE_MAPPING[
+    container_image = codebuild_def.get("container_image") or CODEBUILD_RUNTIME_TO_IMAGE_MAPPING[
         f"{list(runtime_version.keys())[0]}{list(runtime_version.values())[0]}"
     ]
 
