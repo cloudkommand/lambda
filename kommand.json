@@ -276,7 +276,7 @@
                     "keep_warm": {
                         "type": "boolean",
                         "default": false,
-                        "description": "Set to true if you want to keep this function warm. This will invoke the function every 5 minutes by default (15 minutes if inside a VPC) to keep it warm. Note that this will incur charges for the invocations.",
+                        "description": "Set to true if you want to keep this function warm. This will invoke the function every 5 minutes by default (15 minutes if inside a VPC) to keep it warm, with an event that looks like: {'version': '0', 'id': 'bd3ce37f-59c3-c16f-cad0-7935e26215d7', 'detail-type': 'Scheduled Event', 'source': 'aws.events', 'account': '227993477930', 'time': '2023-10-20T05:21:06Z', 'region': 'us-east-1', 'resources': ['arn:aws:events:us-east-1:227993477930:rule/ck-react-g-cloudkommand-exttest-tutorial_lambda_2'], 'detail': {}}. Note that this will incur charges for the invocations.",
                         "common": true
                     },
                     "keep_warm_invocation_minutes": {
