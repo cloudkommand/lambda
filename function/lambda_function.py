@@ -233,7 +233,6 @@ def lambda_handler(event, context):
         create_function(function_name, desired_config, bucket, eh.state.get("new_object_name") or object_name, tags, publish_version)
         update_function_configuration(function_name, desired_config)
         update_function_code(function_name, bucket, eh.state.get("new_object_name") or object_name, publish_version, vpc_config)
-        setup_eventbridge_rule(prev_state, function_name, cdef, keep_warm_minutes)
         get_alias(function_name, alias_name)
         create_alias(function_name, alias_name)
         update_alias(function_name, alias_name)
@@ -257,6 +256,7 @@ def lambda_handler(event, context):
         remove_log_group()
         remove_role(policies, policy_arns, role_description, role_tags)
         gen_props(function_name, region)
+        setup_eventbridge_rule(prev_state, function_name, cdef, keep_warm_minutes)
 
         return eh.finish()
 
