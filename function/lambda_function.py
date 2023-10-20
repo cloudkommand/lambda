@@ -256,7 +256,7 @@ def lambda_handler(event, context):
         remove_log_group()
         remove_role(policies, policy_arns, role_description, role_tags)
         gen_props(function_name, region)
-        setup_eventbridge_rule(prev_state, function_name, cdef, keep_warm_minutes)
+        setup_eventbridge_rule(prev_state, function_name, cdef, keep_warm_minutes, region, account_number)
 
         return eh.finish()
 
@@ -979,30 +979,6 @@ def update_function_code(function_name, bucket, object_name, publish_version, vp
                 'InvalidCodeSignature', 'CodeSigningConfigNotFound'
             ])
 
-@ext(handler=eh, op="setup_eventbridge_rule")
-def setup_eventbridge_rule(prev_state, function_name, cdef, keep_warm_minutes):
-    op = eh.ops["setup_eventbridge_rule"]
-
-    eventbridge_rule_def = cdef.get(EVENTBRIDGE_RULE_KEY, {})
-
-    component_def = {
-        "schedule_expression": f"rate({keep_warm_minutes} minutes)",
-        "targets": {
-            "only": {
-                "arn": eh.props["arn"],
-            }
-        },
-        "description": f"Keep Warm Rule for Lambda {function_name}"
-    }
-
-    component_def.update(eventbridge_rule_def)
-
-    eh.invoke_extension(
-        arn=lambda_env("eventbridge_rule_lambda_name"),
-        component_def=component_def, op=op,
-        child_key=EVENTBRIDGE_RULE_KEY, progress_start=25,
-        progress_end=30
-    )
 
     
 
@@ -1367,6 +1343,32 @@ def gen_props(function_name, region):
         })
     except ClientError as e:
         handle_common_errors(e, eh, "Get Props Failed", 98)
+
+
+@ext(handler=eh, op="setup_eventbridge_rule")
+def setup_eventbridge_rule(prev_state, function_name, cdef, keep_warm_minutes, region, account_number):
+    op = eh.ops["setup_eventbridge_rule"]
+
+    eventbridge_rule_def = cdef.get(EVENTBRIDGE_RULE_KEY, {})
+
+    component_def = {
+        "schedule_expression": f"rate({keep_warm_minutes} minutes)",
+        "targets": {
+            "only": {
+                "arn": gen_lambda_arn(function_name, region, account_number),
+            }
+        },
+        "description": f"Keep Warm Rule for Lambda {function_name}"
+    }
+
+    component_def.update(eventbridge_rule_def)
+
+    eh.invoke_extension(
+        arn=lambda_env("eventbridge_rule_lambda_name"),
+        component_def=component_def, op=op,
+        child_key=EVENTBRIDGE_RULE_KEY, progress_start=25,
+        progress_end=30
+    )
 
 @ext(handler=eh, op="add_tags")
 def add_tags(function_arn):
