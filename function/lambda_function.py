@@ -24,8 +24,12 @@ ALLOWED_RUNTIMES = [
     "java8", "java8.al2"
 ]
 
+
+CODEBUILD_BUILD_KEY = "Codebuild Build"
+CODEBUILD_PROJECT_KEY = "Codebuild Project"
 ECR_REPO_KEY = "ECR Repo"
 ECR_IMAGE_KEY = "ECR Image"
+EVENTBRIDGE_RULE_KEY = "EventBridge Rule"
 ALIAS_KEY = "Alias"
 
 
@@ -98,8 +102,8 @@ def lambda_handler(event, context):
             "SecurityGroupIds": security_group_ids
         }) if (subnet_ids is not None) or (security_group_ids is not None) else None
 
-        codebuild_project_override_def = cdef.get("Codebuild Project") or {} #For codebuild project overrides
-        codebuild_build_override_def = cdef.get("Codebuild Build") or {} #For codebuild build overrides
+        codebuild_project_override_def = cdef.get(CODEBUILD_PROJECT_KEY) or {} #For codebuild project overrides
+        codebuild_build_override_def = cdef.get(CODEBUILD_BUILD_KEY) or {} #For codebuild build overrides
 
         layer_arns = cdef.get("layer_version_arns") or []
         layers = cdef.get("layers") or []
@@ -134,6 +138,7 @@ def lambda_handler(event, context):
         remove_logs_on_delete = cdef.get("remove_logs_on_delete") or False
 
         pass_back_data = event.get("pass_back_data", {})
+        keep_warm_minutes = cdef.get("keep_warm_minutes") or (15 if subnet_ids else 5)
 
         if pass_back_data:
             pass
@@ -161,12 +166,16 @@ def lambda_handler(event, context):
             elif cdef.get("requirements.txt"):
                 eh.add_op("add_requirements")
                 eh.add_state({"requirements": "$$file"})
+            elif cdef.get("keep_warm") or prev_state.get("props", {}).get(EVENTBRIDGE_RULE_KEY):
+                eh.add_op("setup_eventbridge_rule", "upsert" if cdef.get("keep_warm") else "delete")
         elif op == "delete":
             if prev_state.get("props", {}).get(ECR_REPO_KEY):
                 eh.add_op("setup_ecr_repo")
                 eh.add_op("setup_ecr_image")
-            if prev_state.get("props", {}).get("Codebuild Project"):
+            if prev_state.get("props", {}).get(CODEBUILD_PROJECT_KEY):
                 eh.add_op("setup_codebuild_project")
+            if prev_state.get("props", {}).get(EVENTBRIDGE_RULE_KEY):
+                eh.add_op("setup_eventbridge_rule", "delete")
             if remove_logs_on_delete:
                 eh.add_op("remove_log_group", {"name": function_name})
             eh.add_op('remove_role')
@@ -247,6 +256,7 @@ def lambda_handler(event, context):
         remove_log_group()
         remove_role(policies, policy_arns, role_description, role_tags)
         gen_props(function_name, region)
+        setup_eventbridge_rule(prev_state, function_name, cdef, keep_warm_minutes, region, account_number)
 
         return eh.finish()
 
@@ -353,7 +363,7 @@ def compare_etags(event, bucket, object_name, trust_level):
                 component_def = event.get("component_def")
                 old_component_def = prev_state.get("rendef", {})
                 #Check the things that could impact the build
-                if all([component_def.get(x) == old_component_def.get(x) for x in ["name", "runtime", "requirements", "Codebuild Project"]]):
+                if all([component_def.get(x) == old_component_def.get(x) for x in ["name", "runtime", "requirements", CODEBUILD_PROJECT_KEY]]):
                     eh.complete_op("add_requirements")
 
         else:
@@ -778,7 +788,7 @@ def setup_codebuild_project(bucket, object_name, codebuild_def, runtime, op):
     eh.invoke_extension(
         arn=lambda_env("codebuild_project_lambda_name"), 
         component_def=component_def, 
-        child_key="Codebuild Project", progress_start=25, 
+        child_key=CODEBUILD_PROJECT_KEY, progress_start=25, 
         progress_end=30
     )
 
@@ -793,7 +803,7 @@ def run_codebuild_build(codebuild_build_def):
     print(eh.links)
 
     component_def = {
-        "project_name": eh.props["Codebuild Project"]["name"]
+        "project_name": eh.props[CODEBUILD_PROJECT_KEY]["name"]
     }
 
     component_def.update(codebuild_build_def)
@@ -801,7 +811,7 @@ def run_codebuild_build(codebuild_build_def):
     eh.invoke_extension(
         arn=lambda_env("codebuild_build_lambda_name"),
         component_def=component_def, 
-        child_key="Codebuild Build", progress_start=30, 
+        child_key=CODEBUILD_BUILD_KEY, progress_start=30, 
         progress_end=45
     )
 
@@ -838,6 +848,8 @@ def setup_ecr_image(prev_state, function_name, cdef, bucket, object_name, runtim
         child_key=ECR_IMAGE_KEY, progress_start=30, 
         progress_end=45
     )
+
+
 
 @ext(handler=eh, op="create_function")
 def create_function(function_name, desired_config, bucket, object_name, tags, publish_version):
@@ -966,6 +978,9 @@ def update_function_code(function_name, bucket, object_name, publish_version, vp
                 'PreconditionFailed', 'CodeVerificationFailed', 
                 'InvalidCodeSignature', 'CodeSigningConfigNotFound'
             ])
+
+
+    
 
 @ext(handler=eh, op="get_alias")
 def get_alias(function_name, alias_name):
@@ -1328,6 +1343,35 @@ def gen_props(function_name, region):
         })
     except ClientError as e:
         handle_common_errors(e, eh, "Get Props Failed", 98)
+
+
+@ext(handler=eh, op="setup_eventbridge_rule")
+def setup_eventbridge_rule(prev_state, function_name, cdef, keep_warm_minutes, region, account_number):
+    op = eh.ops["setup_eventbridge_rule"]
+
+    eventbridge_rule_def = cdef.get(EVENTBRIDGE_RULE_KEY, {})
+
+    component_def = {
+        "schedule_expression": f"rate({keep_warm_minutes} minutes)",
+        "targets": {
+            "only": {
+                "arn": gen_lambda_arn(function_name, region, account_number),
+            }
+        },
+        "description": f"Keep Warm Rule for Lambda {function_name}"
+    }
+
+    component_def.update(eventbridge_rule_def)
+
+    if prev_state.get("props", {}).get(EVENTBRIDGE_RULE_KEY):
+        eh.add_props({EVENTBRIDGE_RULE_KEY: prev_state.get("props", {}).get(EVENTBRIDGE_RULE_KEY, {})})
+
+    eh.invoke_extension(
+        arn=lambda_env("eventbridge_rule_lambda_name"),
+        component_def=component_def, op=op,
+        child_key=EVENTBRIDGE_RULE_KEY, progress_start=98,
+        progress_end=99
+    )
 
 @ext(handler=eh, op="add_tags")
 def add_tags(function_arn):

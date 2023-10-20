@@ -13,7 +13,8 @@
                 "codebuild_project_lambda_name": "@codebuild.project:props.function_name",
                 "codebuild_build_lambda_name": "@codebuildactions.runbuild:props.function_name",
                 "ecr_image_lambda_name": "@ecr.image:props.function_name",
-                "ecr_repo_lambda_name": "@ecr.repo:props.function_name"
+                "ecr_repo_lambda_name": "@ecr.repo:props.function_name",
+                "eventbridge_rule_lambda_name": "@eventbridge.rule:props.function_name"
             },
             "policy": {
                 "Version": "2012-10-17",
@@ -272,6 +273,16 @@
                             ]
                         }
                     },
+                    "keep_warm": {
+                        "type": "boolean",
+                        "default": false,
+                        "description": "Set to true if you want to keep this function warm. This will invoke the function every 5 minutes by default (15 minutes if inside a VPC) to keep it warm, with an event that looks like: {'version': '0', 'id': 'bd3ce37f-59c3-c16f-cad0-7935e26215d7', 'detail-type': 'Scheduled Event', 'source': 'aws.events', 'account': '227993477930', 'time': '2023-10-20T05:21:06Z', 'region': 'us-east-1', 'resources': ['arn:aws:events:us-east-1:227993477930:rule/ck-react-g-cloudkommand-exttest-tutorial_lambda_2'], 'detail': {}}. Note that this will incur charges for the invocations.",
+                        "common": true
+                    },
+                    "keep_warm_invocation_minutes": {
+                        "type": "integer",
+                        "description": "The defaults are 5 minutes for functions outside a VPC and 15 minutes for functions inside a VPC. Set this to change the interval between invocations. Note that this will incur charges for the invocations."
+                    },
                     "Codebuild Project": {
                         "type": "object",
                         "description": "A dictionary of overrides for the Codebuild Project that is created to either build the requirements or the container image. See the Codebuild Project documentation for details."
@@ -287,6 +298,10 @@
                     "ECR Image": {
                         "type": "object",
                         "description": "A dictionary of overrides for the ECR Image that is created to store the container image. See the ECR Image documentation for details."
+                    },
+                    "EventBridge Rule": {
+                        "type": "object",
+                        "description": "A dictionary of overrides for the EventBridge Rule that is created to trigger the function. See the EventBridge Rule documentation for details."
                     },
                     "remove_logs_on_delete": {
                         "type": "boolean",
@@ -717,6 +732,7 @@
         "iam": "https://github.com/cloudkommand/iam",
         "ecr": "https://github.com/cloudkommand/ecr",
         "codebuild": "https://github.com/cloudkommand/codebuild",
-        "codebuildactions": "https://github.com/cloudkommand/codebuildactions"
+        "codebuildactions": "https://github.com/cloudkommand/codebuildactions",
+        "eventbridge": "https://github.com/cloudkommand/eventbridge"
     }
 }
