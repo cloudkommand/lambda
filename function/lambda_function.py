@@ -1363,11 +1363,14 @@ def setup_eventbridge_rule(prev_state, function_name, cdef, keep_warm_minutes, r
 
     component_def.update(eventbridge_rule_def)
 
+    if prev_state.get("props", {}).get(EVENTBRIDGE_RULE_KEY):
+        eh.add_props({EVENTBRIDGE_RULE_KEY: prev_state.get("props", {}).get(EVENTBRIDGE_RULE_KEY, {})})
+
     eh.invoke_extension(
         arn=lambda_env("eventbridge_rule_lambda_name"),
         component_def=component_def, op=op,
-        child_key=EVENTBRIDGE_RULE_KEY, progress_start=25,
-        progress_end=30
+        child_key=EVENTBRIDGE_RULE_KEY, progress_start=98,
+        progress_end=99
     )
 
 @ext(handler=eh, op="add_tags")
