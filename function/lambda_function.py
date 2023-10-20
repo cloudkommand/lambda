@@ -166,8 +166,10 @@ def lambda_handler(event, context):
             elif cdef.get("requirements.txt"):
                 eh.add_op("add_requirements")
                 eh.add_state({"requirements": "$$file"})
-            elif cdef.get("keep_warm") or prev_state.get("props", {}).get(EVENTBRIDGE_RULE_KEY):
+            #Keep warm only triggered if currently deployed or keep_warm is set
+            if cdef.get("keep_warm") or prev_state.get("props", {}).get(EVENTBRIDGE_RULE_KEY):
                 eh.add_op("setup_eventbridge_rule", "upsert" if cdef.get("keep_warm") else "delete")
+        
         elif op == "delete":
             if prev_state.get("props", {}).get(ECR_REPO_KEY):
                 eh.add_op("setup_ecr_repo")
