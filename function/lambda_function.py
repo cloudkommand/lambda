@@ -265,7 +265,7 @@ def lambda_handler(event, context):
         remove_log_group()
         remove_role(policies, policy_arns, role_description, role_tags)
         gen_props(function_name, region)
-        setup_eventbridge_rule(prev_state, function_name, cdef, keep_warm_minutes, region, account_number)
+        setup_eventbridge_rule(prev_state, function_name, cdef, keep_warm_minutes, keep_warm, region, account_number)
 
         return eh.finish()
 
@@ -1355,14 +1355,14 @@ def gen_props(function_name, region):
 
 
 @ext(handler=eh, op="setup_eventbridge_rule")
-def setup_eventbridge_rule(prev_state, function_name, cdef, keep_warm_minutes, region, account_number):
+def setup_eventbridge_rule(prev_state, function_name, cdef, keep_warm_minutes, keep_warm, region, account_number):
     op = eh.ops["setup_eventbridge_rule"]
 
     eventbridge_rule_def = cdef.get(EVENTBRIDGE_RULE_KEY, {})
 
     component_def = {
         "name": function_name,
-        "schedule_expression": f"rate({keep_warm_minutes} minutes)",
+        "schedule_expression": f"{keep_warm}" if isinstance(keep_warm, str) else f"rate({keep_warm_minutes} minutes)",
         "targets": {
             "only": {
                 "arn": gen_lambda_arn(function_name, region, account_number),
