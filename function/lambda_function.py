@@ -202,7 +202,7 @@ def lambda_handler(event, context):
             "FunctionName": function_name,
             "Description": description,
             "Handler": handler,
-            "Role": eh.state['role_arn'] if op == "upsert" else None,
+            "Role": eh.state.get('role_arn') if op == "upsert" else None,
             "Timeout": timeout,
             "MemorySize": memory_size,
             "Environment": environment,
