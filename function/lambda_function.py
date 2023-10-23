@@ -55,13 +55,23 @@ def lambda_handler(event, context):
         object_name = event.get("s3_object_name")
         
         is_custom_container = cdef.get("container") or cdef.get("login_to_dockerhub")
+        function_name = cdef.get("name") or component_safe_name(project_code, repo_id, cname)
+        alias_name = prev_state.get("props", {}).get(ALIAS_KEY, {}).get("name") or \
+            (function_name if len(function_name) < 40 else function_name[:20])
 
         runtime = None if is_custom_container else (cdef.get("runtime") or "python3.9")
         handler = None if is_custom_container else (cdef.get("handler") or get_default_handler(runtime))
         description = cdef.get("description") or f"Lambda for component {cname}"
         timeout = cdef.get("timeout") or 5
         memory_size = cdef.get("memory_size") or 256
-        environment = {"Variables": {k: str(v) for k,v in cdef.get("environment_variables").items()}} if cdef.get("environment_variables") else None
+        keep_warm = cdef.get("keep_warm")
+        environment = {"Variables": {k: str(v) for k,v in cdef.get("environment_variables").items()}} if cdef.get("environment_variables") else {}
+        if keep_warm:
+            eventbridge_rule_name = cdef.get(EVENTBRIDGE_RULE_KEY, {}).get("name") or function_name
+            if environment:
+                environment["Variables"]["KEEP_WARM_RULE_ARN"] = gen_eventbridge_rule_arn(eventbridge_rule_name, region, account_number)
+            else:
+                environment = {"Variables": {"KEEP_WARM_RULE_ARN": gen_eventbridge_rule_arn(eventbridge_rule_name, region, account_number)}}
         trust_level = cdef.get("trust_level") or "code"
 
         if (not is_custom_container) and (runtime not in ALLOWED_RUNTIMES):
@@ -114,9 +124,6 @@ def lambda_handler(event, context):
                 eh.add_log("Invalid Layer Parameters", {"layers": layers})
                 eh.perm_error("Invalid layer parameters", 0)
 
-        function_name = cdef.get("name") or component_safe_name(project_code, repo_id, cname)
-        alias_name = prev_state.get("props", {}).get(ALIAS_KEY, {}).get("name") or \
-            (function_name if len(function_name) < 40 else function_name[:20])
         
         allowed_invoke_arns = cdef.get("allowed_invoke_arns") or []
         if not isinstance(allowed_invoke_arns, list):
@@ -167,7 +174,7 @@ def lambda_handler(event, context):
                 eh.add_op("add_requirements")
                 eh.add_state({"requirements": "$$file"})
             #Keep warm only triggered if currently deployed or keep_warm is set
-            if cdef.get("keep_warm") or prev_state.get("props", {}).get(EVENTBRIDGE_RULE_KEY):
+            if keep_warm or prev_state.get("props", {}).get(EVENTBRIDGE_RULE_KEY):
                 eh.add_op("setup_eventbridge_rule", "upsert" if cdef.get("keep_warm") else "delete")
         
         elif op == "delete":
@@ -1354,6 +1361,7 @@ def setup_eventbridge_rule(prev_state, function_name, cdef, keep_warm_minutes, r
     eventbridge_rule_def = cdef.get(EVENTBRIDGE_RULE_KEY, {})
 
     component_def = {
+        "name": function_name,
         "schedule_expression": f"rate({keep_warm_minutes} minutes)",
         "targets": {
             "only": {
@@ -1409,6 +1417,9 @@ def remove_tags(function_arn):
 def gen_lambda_arn(function_name, region, account_number):
     #arn:aws:iam::227993477930:policy/3aba481ac88bcbc5d94567e9f93339a7-iam
     return f"arn:aws:lambda:{region}:{account_number}:function:{function_name}"
+
+def gen_eventbridge_rule_arn(function_name, region, account_number):
+    return f"arn:aws:events:{region}:{account_number}:rule/{function_name}"
 
 def gen_lambda_link(function_name, region):
     return f"https://console.aws.amazon.com/lambda/home?region={region}#/functions/{function_name}"
